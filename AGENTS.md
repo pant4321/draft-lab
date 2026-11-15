@@ -1,0 +1,2 @@
+- Review changes and update documentation and tests as code is updated.
+- Run `npm test` before pushing. Pushes to `main` deploy `dist/` to GitHub Pages after tests pass.

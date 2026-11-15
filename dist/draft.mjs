@@ -1,0 +1,161 @@
+import {ROLES,ROLE_NAMES,emptyDraft,rankDraft,validateDraft} from './draft-math.mjs';
+import {roleBlindability} from './blindability.mjs';
+import {matchupSpreadGraph} from './matchup-spread.mjs';
+const $=id=>document.getElementById(id),esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const signed=v=>(v>0?'+':'')+v.toFixed(2),tone=v=>v>.005?'positive':v<-.005?'negative':'zero';
+const norm=s=>s.toLowerCase().replace(/[^a-z0-9]/g,''),num=n=>n.toLocaleString('en-US');
+const STORAGE='draftlab-draft-v1';
+let catalog,champions=new Map(),draft=emptyDraft(),profiles={},ranking=null,selected=null,includeStrength=false,picker=null,revision=0;
+const roleRequests={};
+const blindByRole={};
+function champion(id){return champions.get(Number(id));}
+function blindInfo(id){return blindByRole[draft.role]?.[id];}
+function blindTitle(id){const b=blindInfo(id);return b?.score!=null?`Role-relative blindability: ${b.score}/100. Higher = more consistent across opponents and teammates. Estimated spread ${b.spread.toFixed(2)} pp; compared with ${b.comparedWith} ${ROLE_NAMES[draft.role].toLowerCase()} picks. Independent of this draft and its score.`:(b?.reason??'Not enough comparable role data.');}
+function blindCell(id){const b=blindInfo(id);return `<button type="button" data-blind="${id}" aria-haspopup="dialog" aria-expanded="false" aria-controls="blindability-popover" class="blind-score ${b?.score!=null?(b.score>=67?'blind-high':b.score<=33?'blind-low':'blind-mid'):'zero'}" aria-label="${esc(champion(id).name)} matchup WR delta spread. ${esc(blindTitle(id))}">${b?.score!=null?b.score+'<small>/100</small>':'—'}</button>`;}
+function img(id,cls='portrait'){const c=champion(id);return c?`<img class="${cls}" src="assets/${esc(c.key)}.png" alt="">`:'';}
+function persist(){try{localStorage.setItem(STORAGE,JSON.stringify({draft,includeStrength}));}catch{}}
+function restore(){try{const value=JSON.parse(localStorage.getItem(STORAGE));if(value?.draft){validateDraft(value.draft);for(const id of [...Object.values(value.draft.allies),...Object.values(value.draft.enemies),...value.draft.bans])if(id!=null&&!champions.has(id))throw Error('Unknown saved champion.');draft=value.draft;includeStrength=!!value.includeStrength;}}catch{draft=emptyDraft();}}
+function renderBoard(){
+ for(const side of ['allies','enemies']) {
+  $(side).innerHTML=ROLES.map(role=>{
+   const own=side==='allies'&&role===draft.role;
+   const id=own?selected:draft[side][role],c=champion(id),name=c?.name??(own?'Your next pick':'Choose champion');
+   const body=`${c?img(id):'<span class="placeholder">'+(own?'◈':'+')+'</span>'}<span class="slot-text"><span class="slot-role">${ROLE_NAMES[role]}${own?'<span class="you-tag">'+(c?'PREVIEW':'YOU')+'</span>':''}</span><span class="slot-name">${esc(name)}</span></span>`;
+   return `<div class="slot ${own?'you':!c?'slot-empty':''}">${own?`<div class="slot-main" aria-label="Your ${ROLE_NAMES[role]} pick preview">${body}</div>`:`<button class="slot-main" data-side="${side}" data-role="${role}" aria-label="Choose ${side==='allies'?'allied':'enemy'} ${ROLE_NAMES[role]}">${body}</button>`}${!own&&c?`<button class="slot-clear" data-clear="${side}" data-role="${role}" aria-label="Remove ${esc(c.name)} from ${side==='allies'?'allied':'enemy'} ${ROLE_NAMES[role]}">×</button>`:''}</div>`;
+  }).join('');
+ }
+ document.querySelectorAll('.slot-main[data-side]').forEach(b=>b.onclick=()=>openPicker({side:b.dataset.side,role:b.dataset.role}));
+ document.querySelectorAll('[data-clear]').forEach(b=>b.onclick=()=>{draft[b.dataset.clear][b.dataset.role]=null;update();});
+ $('allied-count').textContent=Object.values(draft.allies).filter(x=>x!=null).length+' revealed';
+ $('enemy-count').textContent=Object.values(draft.enemies).filter(x=>x!=null).length+' revealed';
+ $('your-role').value=draft.role;
+ for(const option of $('your-role').options)option.disabled=draft.allies[option.value]!=null;
+ $('include-strength').checked=includeStrength;
+ $('ban-chips').innerHTML=draft.bans.map(id=>`<button class="ban-chip" data-unban="${id}" aria-label="Unban ${esc(champion(id).name)}">${img(id,'')}<span>${esc(champion(id).name)} ×</span></button>`).join('');
+ document.querySelectorAll('[data-unban]').forEach(b=>b.onclick=()=>{draft.bans=draft.bans.filter(id=>id!==+b.dataset.unban);update();});
+}
+function renderRanking(){
+ hideSpread();
+ if(!ranking?.ready){
+  $('ranking-context').textContent='Add the picks you can see.';
+  $('rankings').innerHTML='<div class="empty"><div class="empty-icon">◈</div><h3>The draft starts here.</h3><p>Add revealed champions on either side.</p></div>';
+  $('ranking-footer').textContent='';$('breakdown').hidden=true;selected=null;renderBoard();return;
+ }
+ const allied=Object.values(draft.allies).filter(x=>x!=null).length,enemy=Object.values(draft.enemies).filter(x=>x!=null).length;
+ $('ranking-context').textContent=`${ROLE_NAMES[draft.role]} · ${allied} ${allied===1?'ally':'allies'} · ${enemy} ${enemy===1?'enemy':'enemies'} revealed`;
+ const query=norm($('candidate-search').value);
+ const rows=ranking.ranked.map((row,index)=>({...row,index:index+1})).filter(row=>norm(champion(row.id).name).includes(query));
+ $('rankings').innerHTML=rows.map(row=>`<div class="pick ${row.id===selected?'selected':''}"><button class="pick-inspect" data-candidate="${row.id}" aria-label="Inspect ${esc(champion(row.id).name)}, rank ${row.index}, draft edge ${signed(row.score)}"></button><span class="pick-lead"><span class="pick-rank">${row.index}</span>${img(row.id)}<span class="pick-name">${esc(champion(row.id).name)}<small>${(100*row.wr).toFixed(1)}% WR${row.smallSample?' · small samples':''}</small></span></span><span class="pick-pair ${tone(row.counter)}">${signed(row.counter)}</span><span class="pick-pair ${tone(row.synergy)}">${signed(row.synergy)}</span>${blindCell(row.id)}<span class="pick-total ${tone(row.score)}">${signed(row.score)}</span></div>`).join('')||'<div class="empty"><h3>No matching recommendations.</h3><p>Clear your search or change the draft.</p></div>';
+ $('ranking-footer').textContent=`${ranking.ranked.length} ranked · ${ranking.shown}/${ranking.shown} revealed pairs covered`+(ranking.insufficient.length?` · ${ranking.insufficient.length} unranked for missing data`:'');
+ document.querySelectorAll('[data-candidate]').forEach(b=>b.onclick=()=>{selected=+b.dataset.candidate;renderRanking();renderBoard();renderBreakdown();});
+}
+function renderBreakdown(){
+ const row=ranking?.ranked.find(x=>x.id===selected);
+ $('breakdown').hidden=!row;if(!row)return;
+ const c=champion(row.id);
+ const cards=row.pairs.map(p=>`<article class="pair-card ${p.kind}"><div class="pair-title">${img(p.id,'')}<span><small>${p.kind==='enemy'?'VS':'WITH'} · ${ROLE_NAMES[p.role].toUpperCase()}</small>${esc(champion(p.id)?.name??p.id)}</span></div><div class="pair-value ${tone(p.adjusted)}">${signed(p.adjusted)}</div><p>${signed(p.raw)} pp raw · ${num(p.games)} games</p></article>`).join('');
+ const base=includeStrength?`<article class="pair-card"><div class="pair-title">${img(row.id,'')}<span><small>BASE STRENGTH</small>${esc(c.name)}</span></div><div class="pair-value ${tone(row.base)}">${signed(row.base)}</div><p>${(row.wr*100).toFixed(2)}% overall WR vs 50%</p></article>`:'';
+ $('breakdown').innerHTML=`<div class="breakdown-head"><div><h2>Why ${esc(c.name)}?</h2><p>Contribution from each revealed pick · sample-adjusted pp</p></div><div class="breakdown-numbers"><span class="blind-detail">Blindability ${blindCell(row.id)}</span><span class="breakdown-total ${tone(row.score)}">${signed(row.score)}</span></div></div><div class="pair-grid">${cards}${base}</div>`;
+}
+async function update(){
+ hideSpread();const current=++revision;persist();renderBoard();$('status').textContent='';
+ try{
+  if(!profiles[draft.role]){
+   ranking=null;selected=null;$('breakdown').hidden=true;$('ranking-footer').textContent='';
+   $('ranking-context').textContent='Loading '+ROLE_NAMES[draft.role].toLowerCase()+' pairs…';
+   $('rankings').innerHTML='<div class="empty"><h3>Loading '+ROLE_NAMES[draft.role].toLowerCase()+' matchups…</h3></div>';
+   const role=draft.role;
+   if(!roleRequests[role])roleRequests[role]=fetch(`data/draft/${role}.json`).then(r=>{if(!r.ok)throw Error('Matchup data could not be loaded.');return r.json();}).then(d=>{if(!d.profiles)throw Error('Incomplete matchup data.');profiles[role]=d.profiles;return d;}).catch(e=>{delete roleRequests[role];throw e;});
+   await roleRequests[role];
+  }
+  if(current!==revision)return;
+  if(!blindByRole[draft.role]){
+   blindByRole[draft.role]=roleBlindability(profiles[draft.role],catalog.champions);
+  }
+  ranking=rankDraft(draft,profiles[draft.role],{includeStrength});
+  if(!ranking.ranked.some(x=>x.id===selected))selected=ranking.ranked[0]?.id??null;
+  renderRanking();renderBoard();renderBreakdown();
+ }catch(e){if(current===revision){$('status').textContent=e.message;$('rankings').innerHTML='<div class="empty"><h3>Data unavailable.</h3><p>Try selecting your role again.</p></div>';$('breakdown').hidden=true;}}
+}
+function openPicker(target){
+ hideSpread();picker=target;$('picker-title').textContent=target.ban?'Choose bans':`Choose ${target.side==='allies'?'allied':'enemy'} ${ROLE_NAMES[target.role]}`;
+ $('picker-search').value='';renderPicker();$('champion-picker').showModal();$('picker-search').focus();
+}
+function renderPicker(){
+ if(!picker)return;
+ const query=norm($('picker-search').value),taken=new Set([...Object.values(draft.allies),...Object.values(draft.enemies)]);
+ const targetId=picker.ban?null:draft[picker.side][picker.role];if(targetId)taken.delete(targetId);
+ const role=picker.role??draft.role;
+ const values=[...champions.values()].filter(c=>norm(c.name).includes(query)).sort((a,b)=>(b.roles[role]?.pickRate??0)-(a.roles[role]?.pickRate??0)||a.name.localeCompare(b.name));
+ $('picker-list').innerHTML=values.map(c=>{const banned=draft.bans.includes(c.id),disabled=taken.has(c.id)||(!picker.ban&&banned);return `<button class="champ-option ${banned?'banned':''}" data-pick="${c.id}" ${disabled?'disabled':''} aria-label="${picker.ban?(banned?'Unban ':'Ban '):'Pick '}${esc(c.name)}">${img(c.id,'')}<span>${esc(c.name)}</span></button>`;}).join('')||'<p>No champions found.</p>';
+ document.querySelectorAll('[data-pick]').forEach(b=>b.onclick=()=>{
+  const id=+b.dataset.pick;
+  if(picker.ban){draft.bans=draft.bans.includes(id)?draft.bans.filter(x=>x!==id):[...draft.bans,id];update();renderPicker();$('picker-search').focus();}
+  else{draft[picker.side][picker.role]=id;$('champion-picker').close();picker=null;update();}
+ });
+}
+const spreadPopup=$('blindability-popover');
+let spreadTrigger=null,spreadTimer,suppressedTrigger=null;
+const graphCache={};
+function hideSpread(){
+ clearTimeout(spreadTimer);
+ if(spreadTrigger)spreadTrigger.setAttribute('aria-expanded','false');
+ spreadTrigger=null;spreadPopup.hidden=true;
+}
+function dismissSpread(){const t=spreadTrigger;suppressedTrigger=t;hideSpread();t?.focus({preventScroll:true});}
+function showSpread(trigger){
+ clearTimeout(spreadTimer);
+ if(spreadTrigger===trigger&&!spreadPopup.hidden)return;
+ hideSpread();spreadTrigger=trigger;trigger.setAttribute('aria-expanded','true');
+ const id=+trigger.dataset.blind,c=champion(id);
+ const options=['enemy','ally'].flatMap(kind=>ROLES.filter(role=>kind==='enemy'||role!==draft.role).map(role=>`<option value="${kind}:${role}" ${kind==='enemy'&&role===draft.role?'selected':''}>${kind==='enemy'?'vs':'with'} ${ROLE_NAMES[role]}</option>`)).join('');
+ spreadPopup.innerHTML=`<div class="spread-head"><h2 id="spread-title">${esc(c.name)} <span>· ${ROLE_NAMES[draft.role]}</span></h2><div class="spread-actions"><select id="spread-group" aria-label="Spread matchup group">${options}</select><button type="button" class="spread-close" aria-label="Close spread graph">×</button></div></div><div id="spread-chart"></div>`;
+ const renderGraph=()=>{
+  const [kind,role]=$('spread-group').value.split(':'),key=draft.role+':'+id+':'+kind+':'+role;
+  if(!graphCache[key])graphCache[key]=matchupSpreadGraph(blindInfo(id),champions,id,kind,role);
+  $('spread-chart').innerHTML=graphCache[key];
+  positionSpread(trigger);
+ };
+ spreadPopup.querySelector('.spread-close').onclick=dismissSpread;
+ spreadPopup.hidden=false;renderGraph();
+ $('spread-group').onchange=renderGraph;
+}
+function positionSpread(trigger){
+ const rect=trigger.getBoundingClientRect(),box=spreadPopup.getBoundingClientRect();
+ spreadPopup.style.left=Math.max(8,Math.min(innerWidth-box.width-8,rect.right-box.width))+'px';
+ const below=rect.bottom+10,above=rect.top-box.height-10;
+ spreadPopup.style.top=Math.max(8,Math.min(innerHeight-box.height-8,below+box.height<=innerHeight-8?below:above))+'px';
+}
+function deferHide(){clearTimeout(spreadTimer);spreadTimer=setTimeout(hideSpread,160);}
+document.addEventListener('pointerover',e=>{
+ const trigger=e.target.closest('[data-blind]');
+ if(trigger&&trigger!==suppressedTrigger)showSpread(trigger);
+ else if(spreadPopup.contains(e.target))clearTimeout(spreadTimer);
+});
+document.addEventListener('pointerout',e=>{
+ if(e.target.closest('[data-blind]')===suppressedTrigger&&!suppressedTrigger?.contains(e.relatedTarget))suppressedTrigger=null;
+ if(e.target.closest('[data-blind]')||spreadPopup.contains(e.target)){
+  if(!spreadTrigger?.contains(e.relatedTarget)&&!spreadPopup.contains(e.relatedTarget))deferHide();
+ }
+});
+document.addEventListener('focusin',e=>{const t=e.target.closest('[data-blind]');if(t&&t!==suppressedTrigger)showSpread(t);else if(!spreadPopup.contains(e.target)){hideSpread();if(e.target!==suppressedTrigger)suppressedTrigger=null;}});
+document.addEventListener('focusout',e=>{if(e.target===suppressedTrigger)suppressedTrigger=null;if(!spreadPopup.contains(e.relatedTarget)&&!e.relatedTarget?.closest('[data-blind]'))deferHide();});
+document.addEventListener('click',e=>{const t=e.target.closest('[data-blind]');if(t){suppressedTrigger=null;showSpread(t);if(e.detail===0)$('spread-group').focus();}else if(!spreadPopup.contains(e.target))hideSpread();});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!spreadPopup.hidden){e.preventDefault();dismissSpread();}});
+window.addEventListener('resize',hideSpread);
+document.addEventListener('scroll',e=>{if(!spreadPopup.contains(e.target))hideSpread();},true);
+$('close-picker').onclick=()=>{$('champion-picker').close();picker=null;};
+$('champion-picker').addEventListener('cancel',()=>{picker=null;});
+$('picker-search').oninput=renderPicker;
+$('add-ban').onclick=()=>openPicker({ban:true});
+$('candidate-search').oninput=renderRanking;
+$('include-strength').onchange=()=>{includeStrength=$('include-strength').checked;update();};
+$('your-role').onchange=()=>{const role=$('your-role').value;if(draft.allies[role]!=null){$('your-role').value=draft.role;return;}draft.role=role;selected=null;update();};
+$('reset').onclick=()=>{draft=emptyDraft(draft.role);selected=null;$('candidate-search').value='';update();};
+try{
+ const response=await fetch('data/draft/catalog.json');if(!response.ok)throw Error('Champion data could not be loaded.');
+ catalog=await response.json();champions=new Map(catalog.champions.map(c=>[c.id,c]));
+ restore();$('snapshot').textContent='All ranks · 30 days · '+new Date(catalog.asOf).toLocaleDateString('en-US',{month:'short',day:'numeric',timeZone:'America/Los_Angeles'});
+ $('data-details').textContent=`Frozen LoLalytics global ranked solo/duo snapshot. ${catalog.champions.length} champions and ${Object.values(catalog.profileCounts).reduce((s,n)=>s+n,0)} champion-role profiles. Candidate roles have at least 1,000 games and 0.25% of the listed role pool, or are the champion's primary role. Each profile retains its source URLs and hashes.`;
+ await update();
+}catch(e){$('status').textContent=e.message;}
