@@ -33,7 +33,7 @@ Role tier lists identify candidate roles. A role profile needs at least 1,000 ch
 
 ## Role assignment
 
-Drag a revealed champion to another role on the same team. Dropping onto an occupied role swaps both champions. The ↔ button offers the same move options for keyboard and touch use. Your own recommendation slot remains reserved; preview suggestions cannot be moved into the recorded draft.
+Drag a revealed champion to another role on the same team. The card lifts when pressed, then follows the mouse as an opaque card with a shadow while the source slot fades and valid targets glow. Dropping onto an occupied role swaps both champions. Escape or releasing outside a valid role cancels the move. The ↔ button offers the same move options for keyboard and touch use. Your own recommendation slot remains reserved; preview suggestions cannot be moved into the recorded draft.
 
 Enable `Auto roles` to estimate roles whenever picks change. The guesser tests every valid one-to-one team assignment and maximizes the product of each champion's role usage, derived from its saved games by role. This lets later picks resolve earlier flex picks. An unsupported role gets a one-game fallback weight, allowing unusual assignments when needed without treating missing data as a normal role. Exact ties prefer existing placements. The result is a heuristic based on the supported role snapshot, not a calibrated role probability.
 

@@ -7,7 +7,7 @@ const signed=v=>(v>0?'+':'')+v.toFixed(2),tone=v=>v>.005?'positive':v<-.005?'neg
 const norm=s=>s.toLowerCase().replace(/[^a-z0-9]/g,''),num=n=>n.toLocaleString('en-US');
 const STORAGE='draftlab-draft-v1';
 let catalog,champions=new Map(),draft=emptyDraft(),profiles={},ranking=null,selected=null,includeStrength=false,picker=null,revision=0;
-let autoRoles=false,roleOverrides={allies:{},enemies:{}},roleDetails={},dragging=null;
+let autoRoles=false,roleOverrides={allies:{},enemies:{}},roleDetails={},dragging=null,dragPress=null,dragPreview=null,suppressDragClickUntil=0;
 const roleRequests={};
 const blindByRole={};
 function champion(id){return champions.get(Number(id));}
@@ -67,7 +67,7 @@ function renderBreakdown(){
  $('breakdown').innerHTML=`<div class="breakdown-head"><div><h2>Why ${esc(c.name)}?</h2><p>Contribution from each revealed pick · sample-adjusted pp</p></div><div class="breakdown-numbers"><span class="blind-detail">Blindability ${blindCell(row.id)}</span><span class="breakdown-total ${tone(row.score)}">${signed(row.score)}</span></div></div><div class="pair-grid">${cards}${base}</div>`;
 }
 async function update(){
- hideSpread();const current=++revision;$('status').textContent='';
+ clearDrag();hideSpread();const current=++revision;$('status').textContent='';
  try{
   roleOverrides=cleanRoleOverrides(draft,roleOverrides);roleDetails={};
   if(autoRoles){const guess=inferDraftRoles(draft,champions,roleOverrides);draft=guess.draft;roleDetails=guess.details;}
@@ -121,17 +121,49 @@ async function applyRoleMove(side,from,to,id,focus=false){
   if(focus)document.querySelector(`[data-move="${side}"][data-role="${to}"]`)?.focus({preventScroll:true});
  }catch(e){$('status').textContent=e.message;}
 }
-function clearDrag(){document.querySelectorAll('.drop-target,.dragging').forEach(el=>el.classList.remove('drop-target','dragging'));dragging=null;}
+function clearDrag(){
+ if(dragPress&&document.documentElement.hasPointerCapture(dragPress.pointerId))document.documentElement.releasePointerCapture(dragPress.pointerId);
+ dragPreview?.remove();dragPreview=null;document.body.classList.remove('is-dragging');
+ document.querySelectorAll('.drop-target,.dragging,.grabbed').forEach(el=>el.classList.remove('drop-target','dragging','grabbed'));dragging=null;dragPress=null;
+}
 function validDrop(slot){return dragging&&slot&&slot.dataset.slotSide===dragging.side&&!(dragging.side==='allies'&&slot.dataset.slotRole===draft.role);}
-document.addEventListener('dragstart',e=>{
+document.addEventListener('pointerdown',e=>{
+ if(e.button!==0||e.pointerType!=='mouse')return;
  const source=e.target.closest('.slot-main[draggable="true"]');if(!source)return;
- const side=source.dataset.side,role=source.dataset.role,id=draft[side][role];if(id==null){e.preventDefault();return;}
- hideSpread();dragging={side,role,id};e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',String(id));source.closest('.slot').classList.add('dragging');
+ const side=source.dataset.side,role=source.dataset.role,id=draft[side][role];if(id==null)return;
+ clearDrag();hideSpread();const card=source.closest('.slot'),rect=card.getBoundingClientRect();
+ dragPress={side,role,id,card,pointerId:e.pointerId,x:e.clientX,y:e.clientY,offsetX:e.clientX-rect.left,offsetY:e.clientY-rect.top,width:rect.width,height:rect.height};
+ card.classList.add('grabbed');
 });
-document.addEventListener('dragover',e=>{const slot=e.target.closest('[data-slot-side]');if(validDrop(slot)){e.preventDefault();e.dataTransfer.dropEffect='move';document.querySelectorAll('.drop-target').forEach(el=>{if(el!==slot)el.classList.remove('drop-target');});slot.classList.add('drop-target');}});
-document.addEventListener('dragleave',e=>{const slot=e.target.closest('[data-slot-side]');if(slot&&!slot.contains(e.relatedTarget))slot.classList.remove('drop-target');});
-document.addEventListener('drop',e=>{const slot=e.target.closest('[data-slot-side]');if(!validDrop(slot))return;e.preventDefault();const source=dragging,to=slot.dataset.slotRole;clearDrag();if(source.role!==to)applyRoleMove(source.side,source.role,to,source.id);});
-document.addEventListener('dragend',clearDrag);
+// Use an opaque floating card instead of the browser's faint native drag image.
+document.addEventListener('pointermove',e=>{
+ if(!dragPress||e.pointerId!==dragPress.pointerId)return;
+ if(!dragging){
+  if(Math.hypot(e.clientX-dragPress.x,e.clientY-dragPress.y)<5)return;
+  dragging={side:dragPress.side,role:dragPress.role,id:dragPress.id};
+  document.documentElement.setPointerCapture(e.pointerId);document.body.classList.add('is-dragging');
+  dragPreview=dragPress.card.cloneNode(true);dragPreview.classList.remove('grabbed');dragPreview.classList.add('drag-preview');
+  dragPreview.removeAttribute('data-slot-side');dragPreview.removeAttribute('data-slot-role');dragPreview.setAttribute('aria-hidden','true');dragPreview.inert=true;
+  dragPreview.querySelectorAll('.slot-move,.slot-clear').forEach(el=>el.remove());
+  dragPreview.style.width=dragPress.width+'px';dragPreview.style.height=dragPress.height+'px';
+  document.body.append(dragPreview);dragPress.card.classList.remove('grabbed');dragPress.card.classList.add('dragging');
+ }
+ e.preventDefault();dragPreview.style.left=(e.clientX-dragPress.offsetX)+'px';dragPreview.style.top=(e.clientY-dragPress.offsetY)+'px';
+ const slot=document.elementFromPoint(e.clientX,e.clientY)?.closest('[data-slot-side]');
+ document.querySelectorAll('.drop-target').forEach(el=>{if(el!==slot||!validDrop(slot))el.classList.remove('drop-target');});
+ if(validDrop(slot))slot.classList.add('drop-target');
+},{passive:false});
+document.addEventListener('pointerup',e=>{
+ if(!dragPress||e.pointerId!==dragPress.pointerId)return;
+ const source=dragging,slot=document.elementFromPoint(e.clientX,e.clientY)?.closest('[data-slot-side]'),to=validDrop(slot)?slot.dataset.slotRole:null;
+ if(source){e.preventDefault();suppressDragClickUntil=performance.now()+250;}
+ clearDrag();if(source&&to&&source.role!==to)applyRoleMove(source.side,source.role,to,source.id);
+});
+document.addEventListener('pointercancel',clearDrag);
+window.addEventListener('blur',clearDrag);
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&dragPress){e.preventDefault();suppressDragClickUntil=performance.now()+250;clearDrag();}});
+document.addEventListener('dragstart',e=>{if(e.target.closest('.slot-main[draggable="true"]'))e.preventDefault();});
+document.addEventListener('click',e=>{if(performance.now()<suppressDragClickUntil){e.preventDefault();e.stopImmediatePropagation();}},true);
 $('close-role-mover').onclick=()=>{$('role-mover').close();};
 const spreadPopup=$('blindability-popover');
 let spreadTrigger=null,spreadTimer,suppressedTrigger=null;
