@@ -19,7 +19,7 @@ function renderBoard(){
  for(const side of ['allies','enemies']) {
   $(side).innerHTML=ROLES.map(role=>{
    const own=side==='allies'&&role===draft.role;
-   const id=own?selected:draft[side][role],c=champion(id),name=c?.name??(own?'Your next pick':'Choose champion');
+   const id=own?selected:draft[side][role],c=champion(id),name=c?.name??(own?'':'Choose champion');
    const body=`${c?img(id):'<span class="placeholder">'+(own?'◈':'+')+'</span>'}<span class="slot-text"><span class="slot-role">${ROLE_NAMES[role]}${own?'<span class="you-tag">'+(c?'PREVIEW':'YOU')+'</span>':''}</span><span class="slot-name">${esc(name)}</span></span>`;
    return `<div class="slot ${own?'you':!c?'slot-empty':''}">${own?`<div class="slot-main" aria-label="Your ${ROLE_NAMES[role]} pick preview">${body}</div>`:`<button class="slot-main" data-side="${side}" data-role="${role}" aria-label="Choose ${side==='allies'?'allied':'enemy'} ${ROLE_NAMES[role]}">${body}</button>`}${!own&&c?`<button class="slot-clear" data-clear="${side}" data-role="${role}" aria-label="Remove ${esc(c.name)} from ${side==='allies'?'allied':'enemy'} ${ROLE_NAMES[role]}">×</button>`:''}</div>`;
   }).join('');
