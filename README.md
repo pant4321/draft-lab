@@ -70,13 +70,17 @@ The 1,000-game setting is a fixed conservative shrinkage choice, not a fitted or
 
 Default ranking uses draft fit only. `Include base WR` adds `100 * (candidate overall WR - 0.5)`. This switch ranks by base strength plus fit and remains optional because overall win rates include player and draft selection effects.
 
-Taken and banned champions are excluded. A candidate missing any revealed pair is left unranked rather than given an invented neutral contribution. A blank draft shows no ranking and prompts "Add champions on either side to see recommended champions". Candidate order is descending score with stable ID tie-breaking. The user's own slot is a preview, not a recorded pick, so it is excluded from all pair inputs. Before recommendations are available, this slot shows only its role without a placeholder champion name. An allied occupied role cannot become the user's role until that allied pick is cleared.
+Taken and banned champions are excluded. A candidate missing any revealed pair is left unranked rather than given an invented neutral contribution. Before any ally or enemy is revealed, the website lists the selected role's champions by descending blindability, with alphabetical ties and unavailable blindability last. Bans still exclude champions. Counter, synergy, and draft edge show dashes, and `Include base WR` is disabled in this view. The user's slot stays empty until a candidate is inspected. Blindability graphs work in both views.
+
+Once any ally or enemy is revealed, candidate order switches to descending draft score with stable ID tie-breaking. Blindability never affects draft edge or this order. Clearing the draft returns to the blindability list. The user's own slot is a preview, not a recorded pick, so it is excluded from all pair inputs. An allied occupied role cannot become the user's role until that allied pick is cleared.
+
+The champion picker sorts by descending pick rate in the clicked slot's role, followed by alphabetical ties. The ban picker uses the user's role. Search filters that order; champions without data for that role appear after champions with role pick rates. A short label in the picker identifies the role used for popularity.
 
 The result is an additive draft score expressed in adjusted percentage-point contributions. It is not a predicted game win probability or a validated causal gain from selecting the champion. Pair samples overlap, pair effects can interact, and summing them can double-count correlated information. No extra arbitrary role multiplier is applied; each revealed role enters through its own pair effect. Unknown future picks are not imputed or penalized. The optional base term and fixed shrinkage both need held-out validation before presenting calibrated match odds.
 
 ## Informational blindability
 
-The Blindability column is a static 0-100 role-relative consistency percentile. Higher means lower estimated variability across common opponents and teammates. It is not a win probability, and it does not enter draft edge, candidate sorting, bans, score modes, or any contribution. It is computed once for the complete role candidate pool before draft filtering and remains fixed while picks change.
+The Blindability column is a static 0-100 role-relative consistency percentile. Higher means lower estimated variability across common opponents and teammates. It is not a win probability, and it does not enter draft edge, draft-edge sorting, bans, score modes, or any contribution. It orders the default list only while no ally or enemy is revealed. It is computed once for the complete role candidate pool before draft filtering and remains fixed while picks change.
 
 For each of five enemy roles and four ally roles, use the independent catalog role pick rates, filter at 0.5% role pick rate and at least 100 games per pair, and normalize weights within the group. Each group needs at least five pairs and 80% of the eligible pick-rate weight covered. Compute weighted delta variance and subtract `sum(w*(1-w)*10000*p*(1-p)/(n-1))`, treating baseline rates as fixed. Average the nine corrected variances equally, then take the square root. Negative per-role corrected variances are retained until the final average, avoiding positive bias from clipping individual groups.
 
@@ -91,6 +95,8 @@ The per-group spread in the graph differs from the overall spread used for the 0
 ## Verification
 
 Companion regression tests cover custom-game bots whose selected roster champions have no pick actions, human hover exclusion, and inferring an unassigned local role from four known teammate roles.
+
+Default-list tests cover all five real role pools, descending blindability, alphabetical ties, unavailable scores, bans-only drafts, switching to unchanged draft-edge rankings when a pick arrives, and role-specific picker popularity. Browser checks cover default graphs, role changes, pick-triggered sorting, reset, bans, and picker sort labels.
 
 `npm test` covers the exact two-ally/three-enemy jungle example, scoring across enemy roles, synergy-driven changes in the best pick, duplicate and ban handling, missing data, empty drafts, sample adjustment, optional strength, all 405,150 pair cells, candidate coverage for all 173 champions, and a real five-pair draft in every role. Qiyana calculation tests remain separately available.
 

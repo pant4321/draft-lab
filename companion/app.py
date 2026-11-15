@@ -18,7 +18,7 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from companion.lcu import Poller
 
-VERSION = "0.1.1"
+VERSION = "0.1.2"
 
 
 class State:

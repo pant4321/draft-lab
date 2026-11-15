@@ -1,4 +1,5 @@
-import {ROLES,ROLE_NAMES,emptyDraft,rankDraft,validateDraft} from './draft-math.mjs';
+import {ROLES,ROLE_NAMES,emptyDraft,validateDraft} from './draft-math.mjs';
+import {recommendationList,sortPickerChampions} from './draft-list.mjs';
 import {roleBlindability} from './blindability.mjs';
 import {inferDraftRoles,moveDraftChampion,cleanRoleOverrides} from './draft-roles.mjs';
 import {mergeClientSnapshot,combineRoleHints} from './draft-sync.mjs';
@@ -48,23 +49,26 @@ function renderBoard(){
 }
 function renderRanking(){
  hideSpread();
- if(!ranking?.ready){
-  $('ranking-context').textContent='';
-  $('rankings').innerHTML='<div class="empty"><div class="empty-icon">◈</div><p>Add champions on either side to see recommended champions</p></div>';
-  $('ranking-footer').textContent='';$('breakdown').hidden=true;selected=null;renderBoard();return;
- }
+ if(!ranking)return;
+ const blind=ranking.mode==='blindability';
  const allied=Object.values(draft.allies).filter(x=>x!=null).length,enemy=Object.values(draft.enemies).filter(x=>x!=null).length;
- $('ranking-context').textContent=`${ROLE_NAMES[draft.role]} · ${allied} ${allied===1?'ally':'allies'} · ${enemy} ${enemy===1?'enemy':'enemies'} revealed`;
+ $('ranking-title').textContent=blind?`Blind picks for ${ROLE_NAMES[draft.role]}`:'Best picks for this draft';
+ $('ranking-context').textContent=blind?'Sorted by blindability':`${ROLE_NAMES[draft.role]} · ${allied} ${allied===1?'ally':'allies'} · ${enemy} ${enemy===1?'enemy':'enemies'} · Sorted by draft edge`;
+ $('score-label').hidden=blind;$('include-strength').disabled=blind;
  const query=norm($('candidate-search').value);
  const rows=ranking.ranked.map((row,index)=>({...row,index:index+1})).filter(row=>norm(champion(row.id).name).includes(query));
- $('rankings').innerHTML=rows.map(row=>`<div class="pick ${row.id===selected?'selected':''}"><button class="pick-inspect" data-candidate="${row.id}" aria-label="Inspect ${esc(champion(row.id).name)}, rank ${row.index}, draft edge ${signed(row.score)}"></button><span class="pick-lead"><span class="pick-rank">${row.index}</span>${img(row.id)}<span class="pick-name">${esc(champion(row.id).name)}<small>${(100*row.wr).toFixed(1)}% WR${row.smallSample?' · small samples':''}</small></span></span><span class="pick-pair ${tone(row.counter)}">${signed(row.counter)}</span><span class="pick-pair ${tone(row.synergy)}">${signed(row.synergy)}</span>${blindCell(row.id)}<span class="pick-total ${tone(row.score)}">${signed(row.score)}</span></div>`).join('')||'<div class="empty"><h3>No matching recommendations.</h3><p>Clear your search or change the draft.</p></div>';
- $('ranking-footer').textContent=`${ranking.ranked.length} ranked · ${ranking.shown}/${ranking.shown} revealed pairs covered`+(ranking.insufficient.length?` · ${ranking.insufficient.length} unranked for missing data`:'');
+ $('rankings').innerHTML=rows.map(row=>`<div class="pick ${row.id===selected?'selected':''}"><button class="pick-inspect" data-candidate="${row.id}" aria-label="Inspect ${esc(champion(row.id).name)}, rank ${row.index}${blind?'':', draft edge '+signed(row.score)}"></button><span class="pick-lead"><span class="pick-rank">${row.index}</span>${img(row.id)}<span class="pick-name">${esc(champion(row.id).name)}<small>${(100*row.wr).toFixed(1)}% WR${row.smallSample?' · small samples':''}</small></span></span><span class="pick-pair ${blind?'zero':tone(row.counter)}">${blind?'—':signed(row.counter)}</span><span class="pick-pair ${blind?'zero':tone(row.synergy)}">${blind?'—':signed(row.synergy)}</span>${blindCell(row.id)}<span class="pick-total ${blind?'zero':tone(row.score)}">${blind?'—':signed(row.score)}</span></div>`).join('')||'<div class="empty"><h3>No matching recommendations.</h3><p>Clear your search or change the draft.</p></div>';
+ $('ranking-footer').textContent=blind?`${ranking.ranked.length} champions · Highest blindability first`:`${ranking.ranked.length} ranked · ${ranking.shown}/${ranking.shown} revealed pairs covered`+(ranking.insufficient.length?` · ${ranking.insufficient.length} unranked for missing data`:'');
  document.querySelectorAll('[data-candidate]').forEach(b=>b.onclick=()=>{selected=+b.dataset.candidate;renderRanking();renderBoard();renderBreakdown();});
 }
 function renderBreakdown(){
  const row=ranking?.ranked.find(x=>x.id===selected);
  $('breakdown').hidden=!row;if(!row)return;
  const c=champion(row.id);
+ if(ranking.mode==='blindability'){
+  $('breakdown').innerHTML=`<div class="breakdown-head"><div><h2>${esc(c.name)}</h2><p>Blind pick · ${ROLE_NAMES[draft.role]}</p></div><span class="blind-detail">Blindability ${blindCell(row.id)}</span></div>`;
+  return;
+ }
  const cards=row.pairs.map(p=>`<article class="pair-card ${p.kind}"><div class="pair-title">${img(p.id,'')}<span><small>${p.kind==='enemy'?'VS':'WITH'} · ${ROLE_NAMES[p.role].toUpperCase()}</small>${esc(champion(p.id)?.name??p.id)}</span></div><div class="pair-value ${tone(p.adjusted)}">${signed(p.adjusted)}</div><p>${signed(p.raw)} pp raw · ${num(p.games)} games</p></article>`).join('');
  const base=includeStrength?`<article class="pair-card"><div class="pair-title">${img(row.id,'')}<span><small>BASE STRENGTH</small>${esc(c.name)}</span></div><div class="pair-value ${tone(row.base)}">${signed(row.base)}</div><p>${(row.wr*100).toFixed(2)}% overall WR vs 50%</p></article>`:'';
  $('breakdown').innerHTML=`<div class="breakdown-head"><div><h2>Why ${esc(c.name)}?</h2><p>Contribution from each revealed pick · sample-adjusted pp</p></div><div class="breakdown-numbers"><span class="blind-detail">Blindability ${blindCell(row.id)}</span><span class="breakdown-total ${tone(row.score)}">${signed(row.score)}</span></div></div><div class="pair-grid">${cards}${base}</div>`;
@@ -87,8 +91,8 @@ async function update(){
   if(!blindByRole[draft.role]){
    blindByRole[draft.role]=roleBlindability(profiles[draft.role],catalog.champions);
   }
-  ranking=rankDraft(draft,profiles[draft.role],{includeStrength});
-  if(!ranking.ranked.some(x=>x.id===selected))selected=ranking.ranked[0]?.id??null;
+  ranking=recommendationList(draft,profiles[draft.role],blindByRole[draft.role],champions,{includeStrength});
+  if(!ranking.ranked.some(x=>x.id===selected))selected=ranking.mode==='blindability'?null:ranking.ranked[0]?.id??null;
   renderRanking();renderBoard();renderBreakdown();
  }catch(e){if(current===revision){$('status').textContent=e.message;$('rankings').innerHTML='<div class="empty"><h3>Data unavailable.</h3><p>Try selecting your role again.</p></div>';$('breakdown').hidden=true;}}
 }
@@ -101,7 +105,8 @@ function renderPicker(){
  const query=norm($('picker-search').value),taken=new Set([...Object.values(draft.allies),...Object.values(draft.enemies)]);
  const targetId=picker.ban?null:draft[picker.side][picker.role];if(targetId)taken.delete(targetId);
  const role=picker.role??draft.role;
- const values=[...champions.values()].filter(c=>norm(c.name).includes(query)).sort((a,b)=>(b.roles[role]?.pickRate??0)-(a.roles[role]?.pickRate??0)||a.name.localeCompare(b.name));
+ $('picker-order').textContent=`Most played in ${ROLE_NAMES[role]}`;
+ const values=sortPickerChampions(champions.values(),role).filter(c=>norm(c.name).includes(query));
  $('picker-list').innerHTML=values.map(c=>{const banned=draft.bans.includes(c.id),disabled=taken.has(c.id)||(!picker.ban&&banned);return `<button class="champ-option ${banned?'banned':''}" data-pick="${c.id}" ${disabled?'disabled':''} aria-label="${picker.ban?(banned?'Unban ':'Ban '):'Pick '}${esc(c.name)}">${img(c.id,'')}<span>${esc(c.name)}</span></button>`;}).join('')||'<p>No champions found.</p>';
  document.querySelectorAll('[data-pick]').forEach(b=>b.onclick=()=>{
   const id=+b.dataset.pick;
