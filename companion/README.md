@@ -6,6 +6,16 @@ The launcher detects the League install directory from common locations or its r
 
 The browser page uses `http://127.0.0.1:8766/` by default. If that port is occupied, the launcher chooses an available loopback port. Always open it through the launcher so its temporary connection token is included. Keep the launcher open; minimizing is fine. Closing it or choosing **Quit companion** stops the local server.
 
+## Startup update check
+
+Version 0.1.4 and later make one background request at startup to [GitHub's latest stable release endpoint](https://docs.github.com/en/rest/releases/releases#get-the-latest-release) for `pant4321/draft-lab`. It compares numeric `companion-vMAJOR.MINOR.PATCH` versions, excludes drafts/prereleases, and requires a nonempty uploaded `DraftLab.exe` with the exact download URL under this repository and tag. Only the app version and ordinary HTTP request metadata are sent; League data, client credentials, and GitHub authentication are not sent.
+
+A newer version shows **Download update** in the launcher. Choosing it opens the official executable download in the browser. There is no automatic download, execution, file replacement, or restart. Equal/older releases show **Up to date**. Network errors, invalid metadata, or rate limits show **Update check unavailable** with **Retry**. Each request has a five-second timeout and a 512 KiB response cap; it never blocks the League polling thread or launcher startup.
+
+Published v0.1.3 and earlier executables do not include this check. Download v0.1.4 manually once to receive it, along with the graph/picker interaction fixes and champion pools. `--no-update-check` disables the request for offline smoke tests. Source UI testing can use `python -m companion.tests.update_preview --ready-file build/update-preview.json`; this previews an older installed version without opening or modifying the real League client.
+
+**Your pool** saves champions separately for each role, then shows them ahead of other recommendations with the existing blindability or draft-edge ordering preserved within each section. Pools are saved in browser-local storage and survive draft resets. They do not change scores or override bans, taken picks, or data requirements.
+
 ## Sync behavior
 
 With no revealed picks, the bundled page shows champions sorted by blindability for your role. As soon as a pick arrives it switches to draft edge. This is available from version 0.1.2.

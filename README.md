@@ -37,6 +37,8 @@ Role tier lists identify candidate roles. A role profile needs at least 1,000 ch
 
 The companion reads locked champion-select picks, completed bans, and your assigned role from the local League Client API about once a second. Teammate assigned roles are hints, enemy roles are inferred, and your manual role corrections always win. A new draft clears previous corrections. `Live sync` pauses or resumes importing; manually editing picks or bans during champion select also pauses it. Dragging roles continues live sync. Your own locked champion appears in your reserved slot. Public GitHub Pages remains usable for manual drafting.
 
+Companion v0.1.4 and later check this repository's latest stable GitHub release in the background at startup. A newer uploaded `DraftLab.exe` shows a **Download update** button in the launcher. It opens the official release download in your browser; it does not install or restart anything automatically. Offline or failed checks leave drafting available and show **Retry**. Install v0.1.4 manually once when upgrading from a published earlier version, which does not include the checker.
+
 Only loopback connections are accepted. Riot's local credentials stay in the native process, the client connection verifies the bundled Riot certificate, and the browser bridge requires its own per-launch session token. The companion only calls the two read endpoints for gameflow and champion select. It does not send player identities to the page or operate picks/bans in the League client. Stats and portraits are bundled; this release uses the frozen dataset documented below. The initial Windows executable is unsigned. See [companion setup and build notes](companion/README.md).
 
 ## Role assignment
@@ -76,6 +78,12 @@ Once any ally or enemy is revealed, candidate order switches to descending draft
 
 The champion picker sorts by descending pick rate in the clicked slot's role, followed by alphabetical ties. The ban picker uses the user's role. Search filters that order; champions without data for that role appear after champions with role pick rates. A short label in the picker identifies the role used for popularity.
 
+**Your pool** opens a role-specific champion selector. Add or remove champions with immediate browser-local saving; switching roles loads that role's separate pool. The selector offers champions with a saved profile for the selected role. Pool choices remain through draft resets and live client updates. They are stored separately from the draft, so a reset does not erase preferences. These preferences are local to the browser origin and do not sync between GitHub Pages and the companion's localhost page.
+
+Recommendations put **Your pool** first, followed by **Other champions**. Each section retains the existing descending blindability or draft-edge order, and numbering starts at 1 in each section. Pool membership does not change any score, blindability percentile, pair contribution, eligibility, or data-coverage rule. Banned, picked, unsupported, and unranked candidates are not promoted into the list. An empty pool keeps the original single list; a pool with no available candidates displays an empty-section message above the other champions. Search filters both sections.
+
+Clicking the shaded backdrop dismisses the champion/ban picker just like its close button or Escape. Clicking content or dialog padding, or dragging from inside to outside, keeps it open. Clicking the spread graph retains focus inside its popup; its selector and close button keep their normal behavior.
+
 The result is an additive draft score expressed in adjusted percentage-point contributions. It is not a predicted game win probability or a validated causal gain from selecting the champion. Pair samples overlap, pair effects can interact, and summing them can double-count correlated information. No extra arbitrary role multiplier is applied; each revealed role enters through its own pair effect. Unknown future picks are not imputed or penalized. The optional base term and fixed shrinkage both need held-out validation before presenting calibrated match odds.
 
 ## Counterpick-safety blindability
@@ -103,6 +111,12 @@ Portraits sit at their exact published normalized deltas and stack vertically. T
 Graph spread is not used in the safety score. Group choices and graph data stay in browser memory without new stats requests. This visual uses our frozen snapshot and estimator and does not claim to reproduce the reference's numbers. Move away, click outside, close, or press Escape to dismiss.
 
 ## Verification
+
+Champion-pool tests cover stable group ordering for both scoring modes, unchanged scores and eligibility, role-specific persistence, reset independence, and malformed settings. Browser checks cover selecting/removing pool champions, switching roles, grouping, bans, reload persistence, and backdrop dismissal.
+
+Overlay regression tests cover graph-click focus retention, native selector/button behavior, backdrop dismissal, dialog padding, pointer cancellation, and drags across the dialog boundary. Browser checks cover repeated graph clicks, group selection, Escape, champion and ban backdrop dismissal, and keeping applied bans after dismissal.
+
+Startup-update tests cover numeric version ordering, stable release filtering, uploaded executable validation, bounded unauthenticated requests, offline/rate-limit errors, background execution, and retry deduplication. The local frozen build was checked against the live GitHub metadata endpoint, and both picker backdrops were checked through that executable's bundled page.
 
 Companion regression tests cover custom-game bots whose selected roster champions have no pick actions, human hover exclusion, and inferring an unassigned local role from four known teammate roles.
 

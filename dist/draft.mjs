@@ -5,6 +5,8 @@ import {inferDraftRoles,moveDraftChampion,cleanRoleOverrides} from './draft-role
 import {mergeClientSnapshot,combineRoleHints} from './draft-sync.mjs';
 import {connectCompanion} from './companion.mjs';
 import {matchupSpreadGraph} from './matchup-spread.mjs';
+import {retainPopupFocus,dismissOnBackdrop} from './overlays.mjs';
+import {emptyPools,loadPools,savePools,poolSections,prioritizePool} from './champion-pool.mjs';
 const $=id=>document.getElementById(id),esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const signed=v=>(v>0?'+':'')+v.toFixed(2),tone=v=>v>.005?'positive':v<-.005?'negative':'zero';
 const norm=s=>s.toLowerCase().replace(/[^a-z0-9]/g,''),num=n=>n.toLocaleString('en-US');
@@ -12,6 +14,7 @@ const STORAGE='draftlab-draft-v1';
 let catalog,champions=new Map(),draft=emptyDraft(),profiles={},ranking=null,selected=null,includeStrength=false,picker=null,revision=0;
 let autoRoles=false,roleOverrides={allies:{},enemies:{}},roleDetails={},dragging=null,dragPress=null,dragPreview=null,suppressDragClickUntil=0;
 let companion=null,clientSyncing=false,clientHints={},clientOwnChampion=null,clientSession=null,clientRoleOverride=null,queuedClientSnapshot=null;
+let pools=emptyPools(),poolRole=null;
 const roleRequests={};
 const blindByRole={};
 function champion(id){return champions.get(Number(id));}
@@ -44,6 +47,8 @@ function renderBoard(){
  $('your-role').value=draft.role;
  for(const option of $('your-role').options)option.disabled=draft.allies[option.value]!=null;
  $('include-strength').checked=includeStrength;
+ $('edit-pool').textContent='Your pool'+(pools[draft.role].length?' · '+pools[draft.role].length:'');
+ $('edit-pool').disabled=!profiles[draft.role];
  $('ban-chips').innerHTML=draft.bans.map(id=>`<button class="ban-chip" data-unban="${id}" aria-label="Unban ${esc(champion(id).name)}">${img(id,'')}<span>${esc(champion(id).name)} ×</span></button>`).join('');
  document.querySelectorAll('[data-unban]').forEach(b=>b.onclick=()=>{pauseForManualEdit();draft.bans=draft.bans.filter(id=>id!==+b.dataset.unban);update();});
 }
@@ -56,8 +61,14 @@ function renderRanking(){
  $('ranking-context').textContent=blind?'Sorted by blindability':`${ROLE_NAMES[draft.role]} · ${allied} ${allied===1?'ally':'allies'} · ${enemy} ${enemy===1?'enemy':'enemies'} · Sorted by draft edge`;
  $('score-label').hidden=blind;$('include-strength').disabled=blind;
  const query=norm($('candidate-search').value);
- const rows=ranking.ranked.map((row,index)=>({...row,index:index+1})).filter(row=>norm(champion(row.id).name).includes(query));
- $('rankings').innerHTML=rows.map(row=>`<div class="pick ${row.id===selected?'selected':''}"><button class="pick-inspect" data-candidate="${row.id}" aria-label="Inspect ${esc(champion(row.id).name)}, rank ${row.index}${blind?'':', draft edge '+signed(row.score)}"></button><span class="pick-lead"><span class="pick-rank">${row.index}</span>${img(row.id)}<span class="pick-name">${esc(champion(row.id).name)}<small>${(100*row.wr).toFixed(1)}% WR${row.smallSample?' · small samples':''}</small></span></span><span class="pick-pair ${blind?'zero':tone(row.counter)}">${blind?'—':signed(row.counter)}</span><span class="pick-pair ${blind?'zero':tone(row.synergy)}">${blind?'—':signed(row.synergy)}</span>${blindCell(row.id)}<span class="pick-total ${blind?'zero':tone(row.score)}">${blind?'—':signed(row.score)}</span></div>`).join('')||'<div class="empty"><h3>No matching recommendations.</h3><p>Clear your search or change the draft.</p></div>';
+ const sections=poolSections(ranking.ranked,pools[draft.role]).map(section=>({...section,rows:section.rows
+  .map((row,index)=>({...row,index:index+1})).filter(row=>norm(champion(row.id).name).includes(query))}));
+ const hasRows=sections.some(section=>section.rows.length);
+ $('rankings').innerHTML=sections.map(section=>{
+  if(!section.rows.length)return section.key==='pool'&&!query?'<h2 class="ranking-group">Your pool</h2><p class="pool-unavailable">None available for this draft.</p>':'';
+  const heading=section.title?`<h2 class="ranking-group">${section.title} <span>${section.rows.length}</span></h2>`:'';
+  return heading+section.rows.map(row=>`<div class="pick ${row.id===selected?'selected':''}" data-pool-group="${section.key}"><button class="pick-inspect" data-candidate="${row.id}" aria-label="Inspect ${esc(champion(row.id).name)}, rank ${row.index}${section.title?' in '+section.title.toLowerCase():''}${blind?'':', draft edge '+signed(row.score)}"></button><span class="pick-lead"><span class="pick-rank">${row.index}</span>${img(row.id)}<span class="pick-name">${esc(champion(row.id).name)}<small>${(100*row.wr).toFixed(1)}% WR${row.smallSample?' · small samples':''}</small></span></span><span class="pick-pair ${blind?'zero':tone(row.counter)}">${blind?'—':signed(row.counter)}</span><span class="pick-pair ${blind?'zero':tone(row.synergy)}">${blind?'—':signed(row.synergy)}</span>${blindCell(row.id)}<span class="pick-total ${blind?'zero':tone(row.score)}">${blind?'—':signed(row.score)}</span></div>`).join('');
+ }).join('')+(!hasRows?'<div class="empty"><h3>No matching recommendations.</h3><p>Clear your search or change the draft.</p></div>':'');
  $('ranking-footer').textContent=blind?`${ranking.ranked.length} champions · Highest blindability first`:`${ranking.ranked.length} ranked · ${ranking.shown}/${ranking.shown} revealed pairs covered`+(ranking.insufficient.length?` · ${ranking.insufficient.length} unranked for missing data`:'');
  document.querySelectorAll('[data-candidate]').forEach(b=>b.onclick=()=>{selected=+b.dataset.candidate;renderRanking();renderBoard();renderBreakdown();});
 }
@@ -93,6 +104,7 @@ async function update(){
    blindByRole[draft.role]=roleBlindability(profiles[draft.role],catalog.champions);
   }
   ranking=recommendationList(draft,profiles[draft.role],blindByRole[draft.role],champions,{includeStrength});
+  ranking={...ranking,ranked:prioritizePool(ranking.ranked,pools[draft.role])};
   if(!ranking.ranked.some(x=>x.id===selected))selected=ranking.mode==='blindability'?null:ranking.ranked[0]?.id??null;
   renderRanking();renderBoard();renderBreakdown();
  }catch(e){if(current===revision){$('status').textContent=e.message;$('rankings').innerHTML='<div class="empty"><h3>Data unavailable.</h3><p>Try selecting your role again.</p></div>';$('breakdown').hidden=true;}}
@@ -114,6 +126,28 @@ function renderPicker(){
   if(picker.ban){draft.bans=draft.bans.includes(id)?draft.bans.filter(x=>x!==id):[...draft.bans,id];update();renderPicker();$('picker-search').focus();}
   else{delete roleOverrides[picker.side][draft[picker.side][picker.role]];draft[picker.side][picker.role]=id;$('champion-picker').close();picker=null;update();}
  });
+}
+function persistPools(){try{savePools(localStorage,pools);}catch{}}
+function openPool(){
+ if(!profiles[draft.role])return;
+ hideSpread();poolRole=draft.role;$('pool-title').textContent='Your '+ROLE_NAMES[poolRole]+' pool';
+ $('pool-search').value='';renderPool();$('pool-picker').showModal();$('pool-search').focus();
+}
+function closePool(){$('pool-picker').close();poolRole=null;}
+function changePool(id){
+ const values=pools[poolRole];pools[poolRole]=values.includes(id)?values.filter(value=>value!==id):[...values,id];
+ persistPools();renderPool();update();
+ document.querySelector(`#pool-list [data-pool-pick="${id}"]`)?.focus({preventScroll:true});
+}
+function renderPool(){
+ if(!poolRole)return;
+ const ids=new Set(pools[poolRole]),query=norm($('pool-search').value);
+ $('pool-selected').innerHTML=pools[poolRole].map(id=>`<button class="pool-chip" data-pool-remove="${id}" aria-label="Remove ${esc(champion(id).name)} from your ${ROLE_NAMES[poolRole]} pool">${img(id,'')}<span>${esc(champion(id).name)} ×</span></button>`).join('');
+ const values=sortPickerChampions(champions.values(),poolRole).filter(c=>profiles[poolRole][c.id]&&norm(c.name).includes(query));
+ $('pool-list').innerHTML=values.map(c=>`<button class="champ-option pool-choice ${ids.has(c.id)?'in-pool':''}" data-pool-pick="${c.id}" aria-pressed="${ids.has(c.id)}" aria-label="${ids.has(c.id)?'Remove ':'Add '}${esc(c.name)} ${ids.has(c.id)?'from':'to'} your ${ROLE_NAMES[poolRole]} pool">${img(c.id,'')}<span>${esc(c.name)}</span></button>`).join('')||'<p>No champions found.</p>';
+ $('pool-count').textContent=ids.size+' '+(ids.size===1?'champion':'champions');$('clear-pool').hidden=!ids.size;
+ document.querySelectorAll('[data-pool-pick]').forEach(button=>button.onclick=()=>changePool(+button.dataset.poolPick));
+ document.querySelectorAll('[data-pool-remove]').forEach(button=>button.onclick=()=>changePool(+button.dataset.poolRemove));
 }
 function openRoleMover(side,role){
  hideSpread();const id=draft[side][role];if(id==null)return;
@@ -178,6 +212,7 @@ $('close-role-mover').onclick=()=>{$('role-mover').close();flushQueuedClient();}
 $('role-mover').addEventListener('cancel',()=>setTimeout(flushQueuedClient,0));
 const spreadPopup=$('blindability-popover');
 let spreadTrigger=null,spreadTimer,suppressedTrigger=null;
+retainPopupFocus(spreadPopup,()=>clearTimeout(spreadTimer));
 const graphCache={};
 function hideSpread(){
  clearTimeout(spreadTimer);
@@ -227,7 +262,15 @@ document.addEventListener('click',e=>{const t=e.target.closest('[data-blind]');i
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!spreadPopup.hidden){e.preventDefault();dismissSpread();}});
 window.addEventListener('resize',hideSpread);
 document.addEventListener('scroll',e=>{if(!spreadPopup.contains(e.target))hideSpread();},true);
-$('close-picker').onclick=()=>{$('champion-picker').close();picker=null;};
+function closePicker(){$('champion-picker').close();picker=null;}
+$('close-picker').onclick=closePicker;
+dismissOnBackdrop($('champion-picker'),closePicker);
+$('edit-pool').onclick=openPool;
+$('close-pool').onclick=closePool;$('pool-done').onclick=closePool;
+dismissOnBackdrop($('pool-picker'),closePool);
+$('pool-picker').addEventListener('cancel',()=>{poolRole=null;});
+$('pool-search').oninput=renderPool;
+$('clear-pool').onclick=()=>{pools[poolRole]=[];persistPools();renderPool();update();};
 $('champion-picker').addEventListener('cancel',()=>{picker=null;});
 $('picker-search').oninput=renderPicker;
 $('add-ban').onclick=()=>openPicker({ban:true});
@@ -257,7 +300,7 @@ function flushQueuedClient(){
 try{
  const response=await fetch('data/draft/catalog.json');if(!response.ok)throw Error('Champion data could not be loaded.');
  catalog=await response.json();champions=new Map(catalog.champions.map(c=>[c.id,c]));
- restore();$('snapshot').textContent='All ranks · 30 days · '+new Date(catalog.asOf).toLocaleDateString('en-US',{month:'short',day:'numeric',timeZone:'America/Los_Angeles'});
+ restore();try{pools=loadPools(localStorage,champions);}catch{}$('snapshot').textContent='All ranks · 30 days · '+new Date(catalog.asOf).toLocaleDateString('en-US',{month:'short',day:'numeric',timeZone:'America/Los_Angeles'});
  $('data-details').textContent=`Frozen LoLalytics global ranked solo/duo snapshot. ${catalog.champions.length} champions and ${Object.values(catalog.profileCounts).reduce((s,n)=>s+n,0)} champion-role profiles. Candidate roles have at least 1,000 games and 0.25% of the listed role pool, or are the champion's primary role. Each profile retains its source URLs and hashes.`;
  await update();
  companion=connectCompanion(state=>{

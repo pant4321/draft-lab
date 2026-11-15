@@ -17,15 +17,16 @@ import webbrowser
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from companion.lcu import Poller
+from companion.updates import UpdateChecker
 
-VERSION = "0.1.3"
+VERSION = "0.1.4"
 
 
 class State:
     def __init__(self):
         self.lock = threading.Lock()
         self.value = {"status": "starting", "message": "Starting companion", "snapshot": None,
-                      "revision": 0, "companionVersion": VERSION}
+                      "revision": 0, "companionVersion": VERSION, "update": {"status": "not_checked"}}
 
     def publish(self, status, message, snapshot):
         with self.lock:
@@ -35,6 +36,11 @@ class State:
     def read(self):
         with self.lock:
             return dict(self.value)
+
+    def publish_update(self, update):
+        with self.lock:
+            if update != self.value["update"]:
+                self.value.update(update=dict(update), revision=self.value["revision"] + 1)
 
 
 class BridgeServer(ThreadingHTTPServer):
@@ -132,12 +138,12 @@ def read_settings():
         return {}
 
 
-def launcher(server, poller, stop):
+def launcher(server, poller, stop, updates, title="Draft Lab Companion"):
     import tkinter as tk
     from tkinter import filedialog, ttk
     window = tk.Tk()
-    window.title("Draft Lab Companion")
-    window.geometry("460x245")
+    window.title(title)
+    window.geometry("460x285")
     window.resizable(False, False)
     window.configure(bg="#101719")
     icon = resource_root() / "companion/assets/draftlab.ico"
@@ -162,13 +168,38 @@ def launcher(server, poller, stop):
     ttk.Button(buttons, text="Open Draft Lab", command=lambda: webbrowser.open(server.launch_url)).pack(side="left", padx=5)
     ttk.Button(buttons, text="League folder…", command=choose_folder).pack(side="left", padx=5)
     ttk.Button(buttons, text="Quit", command=stop.set).pack(side="left", padx=5)
+    update_row = tk.Frame(window, bg="#101719")
+    update_row.pack(fill="x", padx=24, pady=(0, 12))
+    installed_version = updates.current_version
+    update_message = tk.StringVar(value=f"v{installed_version} · Checking for updates…")
+    tk.Label(update_row, textvariable=update_message, bg="#101719", fg="#91a6a5", font=("Segoe UI", 9)).pack(side="left")
+    update_button = ttk.Button(update_row)
+    last_update = None
     window.protocol("WM_DELETE_WINDOW", stop.set)
 
     def refresh():
+        nonlocal last_update
         if stop.is_set():
             window.destroy()
             return
-        message.set(server.state.read()["message"])
+        value = server.state.read()
+        message.set(value["message"])
+        update = value["update"]
+        if update != last_update:
+            last_update = update
+            update_button.pack_forget()
+            status = update["status"]
+            text = "Checking for updates…" if status == "checking" else "Up to date" if status == "current" else "Update check unavailable"
+            if status == "available":
+                text = f"v{update['latestVersion']} available"
+                update_button.configure(text="Download update", command=lambda url=update["downloadUrl"]: webbrowser.open(url))
+                update_button.pack(side="right")
+            elif status == "unavailable":
+                update_button.configure(text="Retry", command=updates.start)
+                update_button.pack(side="right")
+            elif status == "disabled":
+                text = "Update check off"
+            update_message.set(f"v{installed_version} · {text}")
         window.after(300, refresh)
 
     refresh()
@@ -181,6 +212,7 @@ def main(argv=None):
     parser.add_argument("--league-folder", type=Path)
     parser.add_argument("--headless", action="store_true", help="Run without the launcher window, for integration tests.")
     parser.add_argument("--no-browser", action="store_true")
+    parser.add_argument("--no-update-check", action="store_true", help="Skip the public GitHub update check, for offline tests.")
     parser.add_argument("--ready-file", type=Path, help="Write local startup info for integration tests.")
     parser.add_argument("--ca-file", type=Path, help="Alternate local client CA for integration tests.")
     args = parser.parse_args(argv)
@@ -207,6 +239,13 @@ def main(argv=None):
         threads = [threading.Thread(target=server.serve_forever, daemon=True), threading.Thread(target=poller.run, daemon=True)]
         for thread in threads:
             thread.start()
+        updates = UpdateChecker(state, stop, VERSION)
+        if args.no_update_check:
+            state.publish_update({"status": "disabled"})
+        else:
+            worker = updates.start()
+            if worker is not None:
+                threads.append(worker)
         if args.ready_file:
             args.ready_file.write_text(json.dumps({"url": server.launch_url, "pid": os.getpid()}), encoding="utf-8")
         if not args.no_browser:
@@ -215,7 +254,7 @@ def main(argv=None):
             if args.headless:
                 stop.wait()
             else:
-                launcher(server, poller, stop)
+                launcher(server, poller, stop, updates)
         finally:
             stop.set()
             server.shutdown()

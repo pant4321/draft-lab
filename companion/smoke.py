@@ -20,7 +20,7 @@ def main():
     args = parser.parse_args()
     with tempfile.TemporaryDirectory() as directory:
         ready = Path(directory) / 'ready.json'
-        process = subprocess.Popen([str(args.executable.resolve()), '--headless', '--no-browser', '--port', '0', '--ready-file', str(ready)])
+        process = subprocess.Popen([str(args.executable.resolve()), '--headless', '--no-browser', '--no-update-check', '--port', '0', '--ready-file', str(ready)])
         try:
             deadline = time.monotonic() + 45
             while not ready.is_file():
