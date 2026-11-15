@@ -11,7 +11,7 @@ import unittest
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from companion.app import BridgeServer, State
+from companion.app import BridgeServer, State, VERSION
 from companion.lcu import Credentials, LeagueClient, Poller, normalize_session
 
 
@@ -61,6 +61,32 @@ class ClientTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             client.get("/lol-champ-select/v1/session/actions/1")
 
+    def test_custom_bot_roster_without_pick_actions_and_unassigned_local_role(self):
+        raw = {"isCustomGame": True, "localPlayerCellId": 0, "myTeam": [
+            {"cellId": 0, "championId": 0, "championPickIntent": 32, "assignedPosition": ""},
+            {"cellId": 1, "championId": 9, "assignedPosition": "jungle"},
+            {"cellId": 2, "championId": 83, "assignedPosition": "top"},
+            {"cellId": 3, "championId": 50, "assignedPosition": "bottom"},
+            {"cellId": 4, "championId": 147, "assignedPosition": "utility"}],
+            "theirTeam": [{"cellId": 5, "championId": 64, "assignedPosition": "jungle"},
+                          {"cellId": 6, "championId": 0}],
+            "actions": [[{"actorCellId": 0, "championId": 32, "type": "pick", "completed": False}]]}
+        value = normalize_session(raw)
+        self.assertEqual([p["id"] for p in value["allies"]], [9, 83, 50, 147])
+        self.assertEqual(value["enemies"], [{"id": 64, "role": None}])
+        self.assertEqual(value["playerRole"], "middle")
+        self.assertIsNone(value["playerChampion"])
+        # A human hover remains excluded, even if its roster ID is populated.
+        raw["myTeam"][0]["championId"] = 32
+        self.assertIsNone(normalize_session(raw)["playerChampion"])
+        raw["actions"][0][0]["completed"] = True
+        self.assertEqual(normalize_session(raw)["playerChampion"], 32)
+        # Do not apply this custom-game fallback to ordinary draft sessions.
+        raw["isCustomGame"] = False
+        self.assertEqual(normalize_session(raw)["allies"], [])
+        raw["myTeam"][4]["assignedPosition"] = ""
+        self.assertIsNone(normalize_session(raw)["playerRole"])
+
 
 class BridgeTests(unittest.TestCase):
     def setUp(self):
@@ -84,7 +110,7 @@ class BridgeTests(unittest.TestCase):
             self.request("/api/state")
         self.assertEqual(error.exception.code, 403)
         auth = {"X-DraftLab-Session": self.server.session_token}
-        self.assertEqual(json.load(self.request("/api/state", auth))["companionVersion"], "0.1.0")
+        self.assertEqual(json.load(self.request("/api/state", auth))["companionVersion"], VERSION)
         for headers in ({**auth, "Host": "evil.example"}, {**auth, "Origin": "https://evil.example"}):
             with self.assertRaises(HTTPError) as error:
                 self.request("/api/state", headers)

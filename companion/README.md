@@ -9,6 +9,7 @@ The browser page uses `http://127.0.0.1:8766/` by default. If that port is occup
 ## Sync behavior
 
 - Import locked picks and completed bans during champion select. Unlocked hovers are excluded.
+- Custom-game bots are imported from their selected roster champions because League omits their pick actions. Human hovers remain excluded. If your assigned role is blank and teammates occupy four known roles, use the remaining role.
 - Use the local player's assigned role when available. Enemy roles are inferred from the bundled role counts, not hidden opponent information.
 - Use teammate assigned positions as hints. Manual moves and swaps override those hints.
 - Recompute recommendations when picks, bans, or roles change. Defer updates while a card is being dragged or its move dialog is open.
@@ -19,6 +20,8 @@ The browser page uses `http://127.0.0.1:8766/` by default. If that port is occup
 Client state is read through `GET /lol-gameflow/v1/gameflow-phase` and `GET /lol-champ-select/v1/session`. No client write endpoints are used. The API response exposed to the browser contains draft champion IDs and role hints, with names, PUUIDs, account IDs, and local client credentials removed. The browser API checks its session token, Host, and Origin; it has no permissive CORS policy. Riot TLS validation uses the bundled certificate from [Riot's developer docs](https://developer.riotgames.com/docs/lol#league-client-api); certificate chain validation stays enabled.
 
 This first release targets standard role-based Summoner's Rift drafts. Other champion-select modes and unusual client schema changes need separate validation. The local League Client API is not officially supported for third-party apps, and Riot asks developers to register products and their API usage. See [Riot's current guidance](https://developer.riotgames.com/docs/lol#league-client-api).
+
+Version 0.1.1 was checked in a live custom champion-select session: four allied bot picks imported and Mid recommendations appeared automatically. Enemy bot champions that the client has not revealed remain empty.
 
 ## Build and verify
 

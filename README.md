@@ -90,6 +90,8 @@ The per-group spread in the graph differs from the overall spread used for the 0
 
 ## Verification
 
+Companion regression tests cover custom-game bots whose selected roster champions have no pick actions, human hover exclusion, and inferring an unassigned local role from four known teammate roles.
+
 `npm test` covers the exact two-ally/three-enemy jungle example, scoring across enemy roles, synergy-driven changes in the best pick, duplicate and ban handling, missing data, empty drafts, sample adjustment, optional strength, all 405,150 pair cells, candidate coverage for all 173 champions, and a real five-pair draft in every role. Qiyana calculation tests remain separately available.
 
 Browser checks exercise manual picks, exclusion rules, bans, role changes, search, contribution breakdowns, and draft reset. Role-assignment tests cover joint flex-pick inference, later arrivals, ties, uncertain assignments, own-role exclusion, stale corrections, swaps, and scoring against corrected roles. Browser checks cover a native drag to an empty role, swaps via the move button, corrections surviving new picks and reloads, clearing corrections, and the mobile move dialog. Blindability checks cover variance correction, role-relative ranking and ties, insufficient data, and exact score/ranking invariance. Spread popup browser checks cover tap, keyboard focus, Escape, close, champion selection, matchup group changes, unchanged draft edge, and viewport containment at desktop and 390px width. Draft state stays in browser local storage. Reset clears picks, bans and manual role corrections; the chosen role, auto-role setting and optional score mode remain selected.

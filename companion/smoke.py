@@ -5,9 +5,13 @@ from pathlib import Path
 import subprocess
 import tempfile
 import time
+import sys
 from urllib.error import HTTPError
 from urllib.parse import parse_qs, urlsplit
 from urllib.request import Request, urlopen
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from companion.app import VERSION
 
 
 def main():
@@ -32,7 +36,7 @@ def main():
             with urlopen(origin + '/data/draft/catalog.json') as response:
                 assert len(json.load(response)['champions']) >= 173
             with urlopen(Request(origin + '/api/state', headers=headers)) as response:
-                assert json.load(response)['companionVersion'] == '0.1.0'
+                assert json.load(response)['companionVersion'] == VERSION
             try:
                 urlopen(origin + '/api/state')
                 raise AssertionError('Unauthenticated client state was exposed.')

@@ -92,6 +92,7 @@ def normalize_session(session: dict) -> dict:
     actions = [action for phase in session.get("actions", []) for action in phase]
     locked = {action.get("actorCellId") for action in actions
               if action.get("type") == "pick" and action.get("completed") is True}
+    pick_actors = {action.get("actorCellId") for action in actions if action.get("type") == "pick"}
     allies, enemies = [], []
     player_role, player_champion = None, None
     for team_key, output in (("myTeam", allies), ("theirTeam", enemies)):
@@ -99,13 +100,21 @@ def normalize_session(session: dict) -> dict:
             cell = player.get("cellId")
             role = ROLES.get(str(player.get("assignedPosition", "")).lower()) if team_key == "myTeam" else None
             champion = positive_id(player.get("championId"))
+            # Custom-game bots have selected roster champions but no pick actions.
+            selected = cell in locked or bool(session.get("isCustomGame") and cell not in pick_actors)
             if team_key == "myTeam" and cell == local_cell:
                 player_role = role
-                player_champion = champion if cell in locked else None
+                player_champion = champion if selected else None
                 continue
             # The roster reflects champion trades, while completed actions establish lock-in.
-            if champion and cell in locked:
+            if champion and selected:
                 output.append({"id": champion, "role": role})
+    if player_role is None:
+        teammate_roles = {ROLES.get(str(player.get("assignedPosition", "")).lower())
+                          for player in session.get("myTeam", []) if player.get("cellId") != local_cell}
+        remaining = set(ROLES.values()) - teammate_roles
+        if len(remaining) == 1:
+            player_role = remaining.pop()
     bans = []
     for key in ("myTeamBans", "theirTeamBans"):
         for value in session.get("bans", {}).get(key, []):
