@@ -11,6 +11,10 @@ test('entry script and stylesheet cache versions match their content for existin
   const version=createHash('sha256').update(source).digest('hex').slice(0,12);
   assert.ok(html.includes(`${attribute}="${file}?v=${version}"`),`Refresh the cache version after editing ${file}.`);
  }
+ const entry=readFileSync(new URL('draft.mjs',root),'utf8');
+ const blind=readFileSync(new URL('blindability.mjs',root),'utf8').replace(/\r\n/g,'\n');
+ const blindVersion=createHash('sha256').update(blind).digest('hex').slice(0,12);
+ assert.ok(entry.includes(`from './blindability.mjs?v=${blindVersion}'`),'Refresh the blindability import version when its formula changes.');
 });
 
 test('entry assets, module imports and initial data work at the GitHub Pages project path',()=>{

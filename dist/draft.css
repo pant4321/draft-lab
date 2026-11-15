@@ -11,3 +11,5 @@
 .companion-bar{display:flex;align-items:center;gap:18px;flex-wrap:wrap;padding:12px 15px;margin:0 0 22px;border:1px solid #496557;border-radius:6px;background:#1c2c25;font-size:11px;color:var(--green)}.companion-bar label{display:flex;gap:5px;align-items:center;margin-left:auto;color:var(--text)}.companion-bar input{accent-color:var(--green)}.companion-bar .ghost{padding:5px 9px}.auto-roles input:disabled{opacity:.5}
 
 .picker-order{font-size:11px;color:var(--muted);margin:0 0 12px}
+
+.spread-rating{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;color:var(--green);font-size:10px;margin:0 0 8px}.spread-rating span{color:var(--muted)}

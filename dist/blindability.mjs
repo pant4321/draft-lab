@@ -1,4 +1,4 @@
-import {ROLES} from './draft-math.mjs';
+import {ROLES,pairContribution} from './draft-math.mjs';
 
 // Informational only. This module never reads a draft or changes rankDraft.
 export function groupSpread(pairs,weights,{minGames=100,minCoverage=.8}={}) {
@@ -38,14 +38,50 @@ export function estimateBlindSpread(profile,champions,{floor=.5,minGames=100,min
  return {id:profile.id,groups,resolved:ready&&variance>0,spread:ready&&variance>0?Math.sqrt(variance):null,
   reason:!ready?'Not enough common matchup data across all roles.':variance<=0?'Sampling noise is too large to resolve consistency.':null};
 }
+export function counterpickRisk(pairs,weights,{minGames=100,minCoverage=.8,priorGames=1000}={}) {
+ if(!Number.isFinite(priorGames)||priorGames<0)throw Error('Invalid sample adjustment.');
+ let availableWeight=0,coveredWeight=0;
+ const rows=[];
+ for(const [id,weight] of Object.entries(weights)){
+  if(!Number.isFinite(weight)||weight<=0)continue;
+  availableWeight+=weight;
+  const pair=pairContribution(pairs?.[id],priorGames);
+  if(!pair||pair.games<minGames)continue;
+  coveredWeight+=weight;rows.push({id:Number(id),weight,...pair});
+ }
+ const coverage=availableWeight>0?coveredWeight/availableWeight:0;
+ if(rows.length<5||coverage<minCoverage)return {resolved:false,loss:null,coverage,count:rows.length,rows:[]};
+ const normalized=rows.map(r=>({...r,weight:r.weight/coveredWeight}));
+ const loss=normalized.reduce((sum,r)=>sum+r.weight*Math.max(0,-r.adjusted),0);
+ return {resolved:true,loss,coverage,count:rows.length,rows:normalized};
+}
+
+export function estimateCounterSafety(profile,champions,options={}) {
+ const {floor=0}=options;
+ // The graphs retain their common-champion filter. Safety includes rare recorded roles too.
+ const visual=estimateBlindSpread(profile,champions,{...options,floor:.5});
+ const counterGroups=ROLES.map(role=>{
+  const weights={};
+  for(const c of champions){
+   const weight=c.roles[role]?.pickRate??0;
+   if(c.id!==profile.id&&weight>0&&weight>=floor)weights[c.id]=weight;
+  }
+  return {role,...counterpickRisk(profile.enemy?.[role],weights,options)};
+ });
+ const resolved=counterGroups.every(g=>g.resolved);
+ const counterLoss=resolved?counterGroups.reduce((sum,g)=>sum+g.loss,0):null;
+ return {...visual,resolved,wr:profile.wr,counterGroups,counterLoss,
+  reason:!resolved?'Not enough enemy matchup data across all five roles.':null};
+}
+
 export function roleBlindability(profiles,champions,options={}) {
- const values=Object.values(profiles).map(p=>estimateBlindSpread(p,champions,options));
+ const values=Object.values(profiles).map(p=>estimateCounterSafety(p,champions,options));
  const resolved=values.filter(v=>v.resolved);
  return Object.fromEntries(values.map(v=>{
   let score=null;
   if(v.resolved&&resolved.length>=2){
    let worse=0,ties=0;
-   for(const other of resolved){if(other.id===v.id)continue;const difference=other.spread-v.spread;if(difference>1e-9)worse++;else if(Math.abs(difference)<=1e-9)ties++;}
+   for(const other of resolved){if(other.id===v.id)continue;const difference=other.counterLoss-v.counterLoss;if(difference>1e-9)worse++;else if(Math.abs(difference)<=1e-9)ties++;}
    score=Math.round(100*(worse+.5*ties)/(resolved.length-1));
   }
   return [v.id,{...v,score,comparedWith:resolved.length}];

@@ -1,6 +1,6 @@
 import {ROLES,ROLE_NAMES,emptyDraft,validateDraft} from './draft-math.mjs';
 import {recommendationList,sortPickerChampions} from './draft-list.mjs';
-import {roleBlindability} from './blindability.mjs';
+import {roleBlindability} from './blindability.mjs?v=92f60cfcce68';
 import {inferDraftRoles,moveDraftChampion,cleanRoleOverrides} from './draft-roles.mjs';
 import {mergeClientSnapshot,combineRoleHints} from './draft-sync.mjs';
 import {connectCompanion} from './companion.mjs';
@@ -16,7 +16,7 @@ const roleRequests={};
 const blindByRole={};
 function champion(id){return champions.get(Number(id));}
 function blindInfo(id){return blindByRole[draft.role]?.[id];}
-function blindTitle(id){const b=blindInfo(id);return b?.score!=null?`Role-relative blindability: ${b.score}/100. Higher = more consistent across opponents and teammates. Estimated spread ${b.spread.toFixed(2)} pp; compared with ${b.comparedWith} ${ROLE_NAMES[draft.role].toLowerCase()} picks. Independent of this draft and its score.`:(b?.reason??'Not enough comparable role data.');}
+function blindTitle(id){const b=blindInfo(id);return b?.score!=null?`Counterpick safety: ${b.score}/100 among ${b.comparedWith} ${ROLE_NAMES[draft.role].toLowerCase()} picks. ${b.counterLoss.toFixed(2)} pp weighted downside across five enemy roles. Negative matchup deltas are sample-adjusted and multiplied by opponent role pick-rate share. Rare picks count less. Base WR, positive bonuses, and ally synergy do not affect this score. Independent of draft edge.`:(b?.reason??'Not enough comparable role data.');}
 function blindCell(id){const b=blindInfo(id);return `<button type="button" data-blind="${id}" aria-haspopup="dialog" aria-expanded="false" aria-controls="blindability-popover" class="blind-score ${b?.score!=null?(b.score>=67?'blind-high':b.score<=33?'blind-low':'blind-mid'):'zero'}" aria-label="${esc(champion(id).name)} matchup WR delta spread. ${esc(blindTitle(id))}">${b?.score!=null?b.score+'<small>/100</small>':'—'}</button>`;}
 function img(id,cls='portrait'){const c=champion(id);return c?`<img class="${cls}" draggable="false" src="assets/${esc(c.key)}.png" alt="">`:'';}
 function persist(){try{localStorage.setItem(STORAGE,JSON.stringify({draft,includeStrength,autoRoles,roleOverrides}));}catch{}}
@@ -66,7 +66,8 @@ function renderBreakdown(){
  $('breakdown').hidden=!row;if(!row)return;
  const c=champion(row.id);
  if(ranking.mode==='blindability'){
-  $('breakdown').innerHTML=`<div class="breakdown-head"><div><h2>${esc(c.name)}</h2><p>Blind pick · ${ROLE_NAMES[draft.role]}</p></div><span class="blind-detail">Blindability ${blindCell(row.id)}</span></div>`;
+  const info=blindInfo(row.id);
+  $('breakdown').innerHTML=`<div class="breakdown-head"><div><h2>${esc(c.name)}</h2><p>${(100*row.wr).toFixed(1)}% WR · ${info?.counterLoss!=null?info.counterLoss.toFixed(2)+' pp weighted downside':'Downside unavailable'}</p></div><span class="blind-detail">Blindability ${blindCell(row.id)}</span></div>`;
   return;
  }
  const cards=row.pairs.map(p=>`<article class="pair-card ${p.kind}"><div class="pair-title">${img(p.id,'')}<span><small>${p.kind==='enemy'?'VS':'WITH'} · ${ROLE_NAMES[p.role].toUpperCase()}</small>${esc(champion(p.id)?.name??p.id)}</span></div><div class="pair-value ${tone(p.adjusted)}">${signed(p.adjusted)}</div><p>${signed(p.raw)} pp raw · ${num(p.games)} games</p></article>`).join('');
@@ -190,7 +191,8 @@ function showSpread(trigger){
  hideSpread();spreadTrigger=trigger;trigger.setAttribute('aria-expanded','true');
  const id=+trigger.dataset.blind,c=champion(id);
  const options=['enemy','ally'].flatMap(kind=>ROLES.filter(role=>kind==='enemy'||role!==draft.role).map(role=>`<option value="${kind}:${role}" ${kind==='enemy'&&role===draft.role?'selected':''}>${kind==='enemy'?'vs':'with'} ${ROLE_NAMES[role]}</option>`)).join('');
- spreadPopup.innerHTML=`<div class="spread-head"><h2 id="spread-title">${esc(c.name)} <span>· ${ROLE_NAMES[draft.role]}</span></h2><div class="spread-actions"><select id="spread-group" aria-label="Spread matchup group">${options}</select><button type="button" class="spread-close" aria-label="Close spread graph">×</button></div></div><div id="spread-chart"></div>`;
+ const info=blindInfo(id);
+ spreadPopup.innerHTML=`<div class="spread-head"><h2 id="spread-title">${esc(c.name)} <span>· ${ROLE_NAMES[draft.role]}</span></h2><div class="spread-actions"><select id="spread-group" aria-label="Spread matchup group">${options}</select><button type="button" class="spread-close" aria-label="Close spread graph">×</button></div></div><p class="spread-rating" title="${esc(blindTitle(id))}">${info.counterLoss!=null?info.counterLoss.toFixed(2)+' pp weighted downside':'Downside unavailable'}<span>Spread visual only</span></p><div id="spread-chart"></div>`;
  const renderGraph=()=>{
   const [kind,role]=$('spread-group').value.split(':'),key=draft.role+':'+id+':'+kind+':'+role;
   if(!graphCache[key])graphCache[key]=matchupSpreadGraph(blindInfo(id),champions,id,kind,role);

@@ -10,6 +10,8 @@ The browser page uses `http://127.0.0.1:8766/` by default. If that port is occup
 
 With no revealed picks, the bundled page shows champions sorted by blindability for your role. As soon as a pick arrives it switches to draft edge. This is available from version 0.1.2.
 
+Version 0.1.3 changes blindability to counterpick safety only: negative enemy deltas multiplied by opponent role pick-rate share, with sample adjustment. Rare picks count less. Base WR, positive bonuses, and ally synergy do not affect this score. Spread graphs remain available as a separate visual.
+
 - Import locked picks and completed bans during champion select. Unlocked hovers are excluded.
 - Custom-game bots are imported from their selected roster champions because League omits their pick actions. Human hovers remain excluded. If your assigned role is blank and teammates occupy four known roles, use the remaining role.
 - Use the local player's assigned role when available. Enemy roles are inferred from the bundled role counts, not hidden opponent information.

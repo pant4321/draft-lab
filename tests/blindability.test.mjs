@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {groupSpread,estimateBlindSpread,roleBlindability} from '../dist/blindability.mjs';
+import {groupSpread,estimateBlindSpread,counterpickRisk,estimateCounterSafety,roleBlindability} from '../dist/blindability.mjs';
 import {stackMatchups,matchupSpreadGraph} from '../dist/matchup-spread.mjs';
 import {ROLES,emptyDraft,rankDraft} from '../dist/draft-math.mjs';
 const near=(a,b)=>assert.ok(Math.abs(a-b)<1e-8,`${a} != ${b}`);
@@ -16,9 +16,62 @@ test('group variance removes binomial sampling variance with the centering corre
  near(r.observedVariance,2);near(r.noiseVariance,.2);near(r.trueVariance,1.8);
  const total=estimateBlindSpread(p,champions);assert.equal(total.groups.length,9);near(total.spread,Math.sqrt(1.8));
 });
-test('lower spread gets higher scores, tied spreads share a percentile',()=>{
+test('lower weighted downside ranks higher, tied values share a percentile',()=>{
  const p={99:fixture(99),98:fixture(98),97:fixture(97,2)};
  const scores=roleBlindability(p,champions);
+ assert.equal(scores[99].score,75);assert.equal(scores[98].score,75);assert.equal(scores[97].score,0);
+});
+
+test('counter risk sums negative effects multiplied by full-pool pick-rate share',()=>{
+ const weights={1:10,2:30,3:20,4:20,5:20};
+ const pairs={1:[-4,1000],2:[-2,1000],3:[3,1000],4:[5,1000],5:[0,1000]};
+ const risk=counterpickRisk(pairs,weights);
+ near(risk.loss,.5); // 10% * 2 pp + 30% * 1 pp after sample shrinkage.
+ near(risk.rows.find(r=>r.id===1).weight,.1);near(risk.rows.find(r=>r.id===2).weight,.3);
+ pairs[3][0]=300;pairs[4][0]=500;
+ near(counterpickRisk(pairs,weights).loss,.5);
+ pairs[1][1]=100; // A smaller sample receives a smaller penalty.
+ assert.ok(counterpickRisk(pairs,weights).loss<risk.loss);
+ const positive=Object.fromEntries(Object.keys(weights).map(id=>[id,[Number(id),1000]]));
+ near(counterpickRisk(positive,weights).loss,0);
+ assert.throws(()=>counterpickRisk(pairs,weights,{priorGames:-1}));
+});
+
+test('rare hard counters contribute less than common mild counters and sub-0.5% roles are included',()=>{
+ const weights={1:1,2:20,3:20,4:20,5:39};
+ const pairs={1:[-5,1000],2:[-1,1000],3:[0,1000],4:[0,1000],5:[0,1000]};
+ const risk=counterpickRisk(pairs,weights,{priorGames:0});
+ near(risk.loss,.25);
+ const cost=id=>{const r=risk.rows.find(r=>r.id===id);return r.weight*-r.adjusted;};
+ near(cost(1),.05);near(cost(2),.2);assert.ok(cost(1)<cost(2));
+ const p=fixture(99,0),rareMeta=champions.map(c=>({...c,roles:Object.fromEntries(ROLES.map(r=>[r,{pickRate:c.id===1?.1:24.975}]))}));
+ for(const pairs of Object.values(p.enemy))pairs[1][0]=-5;
+ const safety=estimateCounterSafety(p,rareMeta,{priorGames:0});
+ assert.equal(safety.resolved,true);
+ near(safety.counterLoss,5*.001*5);
+ assert.ok(safety.counterGroups.every(g=>g.rows.some(r=>r.id===1)));
+});
+
+test('positive bonuses, role WR, and ally synergy cannot affect counterpick safety',()=>{
+ const original=fixture(99),before=estimateCounterSafety(original,champions);
+ const positive=structuredClone(original);
+ for(const pairs of Object.values(positive.enemy))for(const pair of Object.values(pairs))if(pair[0]>0)pair[0]*=100;
+ for(const pairs of Object.values(positive.ally))for(const pair of Object.values(pairs))pair[0]*=1000;
+ positive.wr=.9;
+ const changed=estimateCounterSafety(positive,champions);
+ near(changed.counterLoss,before.counterLoss);
+ delete positive.ally;
+ assert.equal(estimateCounterSafety(positive,champions).resolved,true);
+ near(estimateCounterSafety(positive,champions).counterLoss,before.counterLoss);
+ positive.enemy.top[1][0]=-10;
+ const countered=estimateCounterSafety(positive,champions);
+ assert.ok(countered.counterLoss>before.counterLoss);
+ near(before.counterLoss,before.counterGroups.reduce((sum,g)=>sum+g.loss,0));
+});
+
+test('base WR cannot change the safety percentile or break a downside tie',()=>{
+ const weak=fixture(99),strong=fixture(98);weak.wr=.48;strong.wr=.55;
+ const scores=roleBlindability({99:weak,98:strong,97:fixture(97,2)},champions);
  assert.equal(scores[99].score,75);assert.equal(scores[98].score,75);assert.equal(scores[97].score,0);
 });
 
@@ -57,13 +110,19 @@ test('portrait stacking preserves exact x positions and prevents overlap or clip
  }
 });
 
-test('missing coverage and noise-dominated estimates are not treated as perfectly blindable',()=>{
+test('safety scores require enemy coverage, while graph noise and role WR are separate',()=>{
  const missing=fixture(99);delete missing.enemy.top;
  const flat=fixture(98,0);
  const scores=roleBlindability({99:missing,98:flat,97:fixture(97)},champions);
  assert.equal(scores[99].resolved,false);assert.equal(scores[99].score,null);
- assert.equal(scores[98].resolved,false);assert.equal(scores[98].score,null);
- assert.equal(scores[97].score,null); // one resolved peer cannot define a percentile
+ assert.equal(scores[98].resolved,true);assert.equal(scores[98].score,100);
+ assert.equal(scores[98].spread,null); // A graph with unresolved variance does not erase a valid downside estimate.
+ assert.equal(scores[97].score,0);
+ assert.equal(roleBlindability({99:missing,97:fixture(97)},champions)[97].score,null);
+ const invalid=fixture(96);invalid.wr=NaN;
+ assert.equal(estimateCounterSafety(invalid,champions).resolved,true);
+ const weights={1:20,2:20,3:20,4:20,5:20,6:100};
+ assert.equal(counterpickRisk(fixture(99).enemy.top,weights).resolved,false);
 });
 test('blindability never changes draft scores, order, or input data',()=>{
  const root=new URL('../dist/data/draft/',import.meta.url);
@@ -82,5 +141,5 @@ test('blindability never changes draft scores, order, or input data',()=>{
  assert.deepEqual(after,before);assert.equal(JSON.stringify(profiles),original);
  d.bans=[before.ranked[0].id];d.enemies.middle=134;
  assert.deepEqual(roleBlindability(profiles,catalog),b);
- for(const value of Object.values(b)){assert.ok(value.score>=0&&value.score<=100);assert.ok(value.spread>0);}
+ for(const value of Object.values(b)){assert.ok(value.score>=0&&value.score<=100);assert.ok(Number.isFinite(value.counterLoss)&&value.counterLoss>=0);}
 });
