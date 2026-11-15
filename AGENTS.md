@@ -1,2 +1,3 @@
 - Review changes and update documentation and tests as code is updated.
 - Run `npm test` before pushing. Pushes to `main` deploy `dist/` to GitHub Pages after tests pass.
+- After editing `dist/draft.mjs`, refresh its `v` query in `dist/index.html` with the first 12 SHA-256 characters of the LF-normalized script. The Pages test enforces this cache version.

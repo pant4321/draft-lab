@@ -21,7 +21,7 @@ Open http://127.0.0.1:8765. Host `dist/` as a static site.
 
 This repository hosts the site on GitHub Pages at https://pant4321.github.io/draft-lab/. The workflow in `.github/workflows/pages.yml` runs the tests, uploads `dist/`, and deploys after a push to `main`. It can also be run manually from the repository's Actions tab. In Settings → Pages, the publishing source is GitHub Actions.
 
-No build step, server, API key, or runtime data service is required. Site links, module imports, portraits, and data paths are relative so they work under the `/draft-lab/` project path. Tests check those paths alongside the scoring and dataset tests. Picks stay in browser storage for this origin; drafts saved on the previous hosting address do not transfer automatically. To update the frozen dataset, run the collector locally, review the resulting files, run the tests, and push the update.
+No build step, server, API key, or runtime data service is required. Site links, module imports, portraits, and data paths are relative so they work under the `/draft-lab/` project path. Tests check those paths alongside the scoring and dataset tests. The entry script URL includes a hash of its LF-normalized content to refresh cached JavaScript after updates; refresh this query in `dist/index.html` whenever `dist/draft.mjs` changes. Picks stay in browser storage for this origin; drafts saved on the previous hosting address do not transfer automatically. To update the frozen dataset, run the collector locally, review the resulting files, run the tests, and push the update.
 
 ## Dataset
 
