@@ -6,7 +6,7 @@ The launcher detects the League install directory from common locations or its r
 
 The bridge listens on `http://127.0.0.1:8766/` by default. If that port is occupied, the launcher chooses an available loopback port. Always open the website through the launcher to include its temporary session token and port in the URL fragment. The site removes these from the address before Analytics starts and keeps them in this tab's session storage, so refresh keeps the connection. No draft or preference transfer from old localhost pages is performed. Existing live-site preferences stay in the same browser storage.
 
-Choose **Connect to League** when prompted. The browser may ask to allow local/loopback access. An existing reported permission grant connects automatically; denied access shows site-settings instructions. Unsupported permission-query APIs fall back to an explicit connection click. Closing the launcher or choosing **Quit companion** stops the bridge. Failed connections keep manual drafting available.
+A centered setup popup appears when local access needs permission or the browser cannot report its status. Choose its large **Connect to League** button, then **Allow** in the browser prompt. Setup closes when connected. An existing reported permission grant connects automatically without a popup; denied access shows site-settings instructions. Setup can be dismissed for manual drafting and reopened from the connection bar. This website change works with v0.1.6 without another executable download. Closing the launcher or choosing **Quit companion** stops the bridge. Failed connections keep manual drafting available.
 
 ## Startup update check
 

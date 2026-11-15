@@ -3,7 +3,7 @@ import {recommendationList,sortPickerChampions} from './draft-list.mjs';
 import {roleBlindability} from './blindability.mjs?v=92f60cfcce68';
 import {inferDraftRoles,moveDraftChampion,cleanRoleOverrides} from './draft-roles.mjs';
 import {mergeClientSnapshot,combineRoleHints} from './draft-sync.mjs';
-import {connectCompanion} from './companion.mjs?v=f9cb337f223c';
+import {connectCompanion} from './companion.mjs?v=dccb644181f1';
 import {prepareCompanionSession} from './companion-session.mjs?v=68364641f994';
 import {startAnalytics} from './analytics.mjs?v=9d2db4435dc3';
 import {matchupSpreadGraph} from './matchup-spread.mjs';
