@@ -3,7 +3,9 @@ import {recommendationList,sortPickerChampions} from './draft-list.mjs';
 import {roleBlindability} from './blindability.mjs?v=92f60cfcce68';
 import {inferDraftRoles,moveDraftChampion,cleanRoleOverrides} from './draft-roles.mjs';
 import {mergeClientSnapshot,combineRoleHints} from './draft-sync.mjs';
-import {connectCompanion} from './companion.mjs';
+import {connectCompanion} from './companion.mjs?v=f9cb337f223c';
+import {prepareCompanionSession} from './companion-session.mjs?v=68364641f994';
+import {startAnalytics} from './analytics.mjs?v=9d2db4435dc3';
 import {matchupSpreadGraph} from './matchup-spread.mjs';
 import {retainPopupFocus,dismissOnBackdrop} from './overlays.mjs';
 import {emptyPools,loadPools,savePools,poolSections,prioritizePool} from './champion-pool.mjs';
@@ -12,6 +14,8 @@ const $=id=>document.getElementById(id),esc=s=>String(s).replace(/[&<>"']/g,c=>(
 const signed=v=>(v>0?'+':'')+v.toFixed(2),tone=v=>v>.005?'positive':v<-.005?'negative':'zero';
 const norm=s=>s.toLowerCase().replace(/[^a-z0-9]/g,''),num=n=>n.toLocaleString('en-US');
 const STORAGE='draftlab-draft-v1';
+const companionSession=prepareCompanionSession();
+startAnalytics();
 let catalog,champions=new Map(),draft=emptyDraft(),profiles={},ranking=null,selected=null,includeStrength=false,picker=null,revision=0;
 let autoRoles=false,roleOverrides={allies:{},enemies:{}},roleDetails={},dragging=null,dragPress=null,dragPreview=null,suppressDragClickUntil=0;
 let companion=null,clientSyncing=false,clientHints={},clientOwnChampion=null,clientSession=null,clientRoleOverride=null,queuedClientSnapshot=null;
@@ -322,7 +326,7 @@ async function loadDataset(id){
    clientSyncing=state.syncing;
    if(!state.enabled){queuedClientSnapshot=null;clientHints={};clientOwnChampion=null;}
    $('auto-roles').disabled=clientSyncing;
-  },acceptClientSnapshot);
+  },acceptClientSnapshot,companionSession);
  }catch(error){
   if(request!==datasetRevision)return;
   datasetLoading=false;

@@ -3,15 +3,14 @@ from __future__ import annotations
 
 import argparse
 import ctypes
-from functools import partial
-from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 from pathlib import Path
 import secrets
 import sys
 import threading
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlencode
 import webbrowser
 
 if __package__ in (None, ""):
@@ -19,14 +18,18 @@ if __package__ in (None, ""):
 from companion.lcu import Poller
 from companion.updates import UpdateChecker
 
-VERSION = "0.1.5"
+VERSION = "0.1.6"
+LIVE_SITE = "https://pant4321.github.io/draft-lab/"
+LIVE_ORIGIN = "https://pant4321.github.io"
+BRIDGE_PROTOCOL = 1
 
 
 class State:
     def __init__(self):
         self.lock = threading.Lock()
         self.value = {"status": "starting", "message": "Starting companion", "snapshot": None,
-                      "revision": 0, "companionVersion": VERSION, "update": {"status": "not_checked"}}
+                      "revision": 0, "companionVersion": VERSION, "bridgeProtocol": BRIDGE_PROTOCOL,
+                      "update": {"status": "not_checked"}}
 
     def publish(self, status, message, snapshot):
         with self.lock:
@@ -46,9 +49,11 @@ class State:
 class BridgeServer(ThreadingHTTPServer):
     daemon_threads = True
 
-    def __init__(self, address, web_root, state, stop):
-        super().__init__(address, partial(BridgeHandler, directory=str(web_root)))
-        self.state, self.stop, self.web_root = state, stop, web_root
+    def __init__(self, address, state, stop):
+        if address[0] != "127.0.0.1":
+            raise ValueError("The bridge must bind only to loopback.")
+        super().__init__(address, BridgeHandler)
+        self.state, self.stop = state, stop
         self.session_token = secrets.token_urlsafe(32)
 
     @property
@@ -57,10 +62,10 @@ class BridgeServer(ThreadingHTTPServer):
 
     @property
     def launch_url(self):
-        return self.origin + "/#companion=" + self.session_token
+        return LIVE_SITE + "#" + urlencode({"companion": self.session_token, "port": self.server_port})
 
 
-class BridgeHandler(SimpleHTTPRequestHandler):
+class BridgeHandler(BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass  # Do not log headers, local session tokens, or client data.
 
@@ -69,14 +74,31 @@ class BridgeHandler(SimpleHTTPRequestHandler):
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("X-Frame-Options", "DENY")
+        if self.host_allowed() and self.headers.get("Origin") == LIVE_ORIGIN:
+            self.send_header("Access-Control-Allow-Origin", LIVE_ORIGIN)
+            self.send_header("Vary", "Origin")
         super().end_headers()
 
     def host_allowed(self):
         expected = urlsplit(self.server.origin).netloc
-        return self.headers.get("Host") == expected and self.headers.get("Origin", self.server.origin) == self.server.origin
+        return self.headers.get("Host") == expected and self.headers.get("Origin", self.server.origin) in (self.server.origin, LIVE_ORIGIN)
 
     def authorized(self):
-        return self.host_allowed() and secrets.compare_digest(self.headers.get("X-DraftLab-Session", ""), self.server.session_token)
+        return self.host_allowed() and secrets.compare_digest(self.headers.get("X-DraftLab-Session", "").encode(), self.server.session_token.encode())
+
+    def do_OPTIONS(self):
+        path = urlsplit(self.path).path
+        expected = {"/api/state": "GET", "/api/quit": "POST"}.get(path)
+        headers = {item.strip().lower() for item in self.headers.get("Access-Control-Request-Headers", "").split(",") if item.strip()}
+        if not self.host_allowed() or self.headers.get("Origin") != LIVE_ORIGIN or not expected or self.headers.get("Access-Control-Request-Method") != expected or headers != {"x-draftlab-session"}:
+            self.send_error(403)
+            return
+        self.send_response(204)
+        self.send_header("Access-Control-Allow-Methods", expected)
+        self.send_header("Access-Control-Allow-Headers", "X-DraftLab-Session")
+        self.send_header("Access-Control-Max-Age", "600")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
     def send_json(self, payload, status=200):
         body = json.dumps(payload, separators=(",", ":")).encode()
@@ -100,16 +122,7 @@ class BridgeHandler(SimpleHTTPRequestHandler):
         if path.startswith("/api/"):
             self.send_error(404)
             return
-        candidate = Path(self.translate_path(self.path)).resolve()
-        root = self.server.web_root.resolve()
-        if not candidate.is_relative_to(root) or candidate.is_dir() and not (candidate / "index.html").is_file():
-            self.send_error(404)
-            return
-        # Windows' default MIME mapping does not consistently recognize .mjs.
-        super().do_GET()
-
-    def guess_type(self, path):
-        return "text/javascript" if str(path).endswith(".mjs") else super().guess_type(path)
+        self.send_error(404)
 
     def do_POST(self):
         if not self.authorized():
@@ -226,13 +239,12 @@ def main(argv=None):
             ctypes.windll.kernel32.CloseHandle(mutex)
             return 0
     root = resource_root()
-    web_root = root / ("web" if getattr(sys, "frozen", False) else "dist")
     stop, state = threading.Event(), State()
     try:
         try:
-            server = BridgeServer(("127.0.0.1", args.port), web_root, state, stop)
+            server = BridgeServer(("127.0.0.1", args.port), state, stop)
         except OSError:
-            server = BridgeServer(("127.0.0.1", 0), web_root, state, stop)
+            server = BridgeServer(("127.0.0.1", 0), state, stop)
         preferred = args.league_folder or read_settings().get("leagueFolder")
         poller = Poller(state, stop, args.ca_file or root / "companion/assets/riotgames.pem",
                         Path(preferred) if preferred else None)

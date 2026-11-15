@@ -11,7 +11,7 @@ import unittest
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from companion.app import BridgeServer, State, VERSION
+from companion.app import BridgeServer, State, VERSION, LIVE_SITE, LIVE_ORIGIN
 from companion.lcu import Credentials, LeagueClient, Poller, normalize_session
 
 
@@ -92,7 +92,7 @@ class BridgeTests(unittest.TestCase):
     def setUp(self):
         self.stop = threading.Event()
         self.state = State()
-        self.server = BridgeServer(("127.0.0.1", 0), Path(__file__).parents[2] / "dist", self.state, self.stop)
+        self.server = BridgeServer(("127.0.0.1", 0), self.state, self.stop)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
 
@@ -105,7 +105,10 @@ class BridgeTests(unittest.TestCase):
         return urlopen(Request(self.server.origin + path, headers=headers or {}, method=method), timeout=2)
 
     def test_auth_host_origin_and_read_only_static_serving(self):
-        self.assertEqual(self.request("/draft.mjs").headers.get_content_type(), "text/javascript")
+        for path in ("/", "/draft.mjs", "/data/draft/catalog.json", "/../companion/app.py"):
+            with self.assertRaises(HTTPError) as error:
+                self.request(path)
+            self.assertEqual(error.exception.code, 404)
         with self.assertRaises(HTTPError) as error:
             self.request("/api/state")
         self.assertEqual(error.exception.code, 403)
@@ -119,6 +122,49 @@ class BridgeTests(unittest.TestCase):
             self.request("/data/")
         self.request("/api/quit", auth, "POST").close()
         self.assertTrue(self.stop.is_set())
+
+    def test_live_launch_and_strict_cors_preflight(self):
+        from urllib.parse import parse_qs, urlsplit
+        launch = urlsplit(self.server.launch_url)
+        self.assertEqual(launch.scheme + '://' + launch.netloc + launch.path, LIVE_SITE)
+        self.assertEqual(launch.query, '')
+        self.assertEqual(parse_qs(launch.fragment), {'companion': [self.server.session_token], 'port': [str(self.server.server_port)]})
+        headers = {'Origin': LIVE_ORIGIN, 'Access-Control-Request-Method': 'GET', 'Access-Control-Request-Headers': 'x-draftlab-session'}
+        with self.request('/api/state', headers, 'OPTIONS') as response:
+            self.assertEqual(response.status, 204)
+            self.assertEqual(response.headers['Access-Control-Allow-Origin'], LIVE_ORIGIN)
+            self.assertEqual(response.headers['Access-Control-Allow-Methods'], 'GET')
+            self.assertEqual(response.headers['Access-Control-Allow-Headers'], 'X-DraftLab-Session')
+            self.assertIsNone(response.headers.get('Access-Control-Allow-Credentials'))
+        for broken in ({**headers, 'Origin': 'https://evil.example'}, {**headers, 'Origin': LIVE_ORIGIN + '.evil.example'},
+                       {**headers, 'Host': 'evil.example'}, {**headers, 'Access-Control-Request-Method': 'POST'},
+                       {**headers, 'Access-Control-Request-Headers': 'x-draftlab-session, authorization'}):
+            with self.assertRaises(HTTPError) as error:
+                self.request('/api/state', broken, 'OPTIONS')
+            self.assertEqual(error.exception.code, 403)
+            if broken.get('Origin') != LIVE_ORIGIN or broken.get('Host') == 'evil.example':
+                self.assertIsNone(error.exception.headers.get('Access-Control-Allow-Origin'))
+
+    def test_live_origin_needs_token_and_only_exposes_read_only_client_state(self):
+        headers = {'Origin': LIVE_ORIGIN, 'X-DraftLab-Session': self.server.session_token}
+        with self.request('/api/state', headers) as response:
+            self.assertEqual(json.load(response)['bridgeProtocol'], 1)
+            self.assertEqual(response.headers['Access-Control-Allow-Origin'], LIVE_ORIGIN)
+        for token in ('', 'wrong', 'é'):
+            with self.assertRaises(HTTPError) as error:
+                self.request('/api/state', {**headers, 'X-DraftLab-Session': token})
+            self.assertEqual(error.exception.code, 403)
+        with self.assertRaises(HTTPError) as error:
+            self.request('/lol-champ-select/v1/session/actions/1', headers, 'POST')
+        self.assertEqual(error.exception.code, 404)
+        with self.request('/api/quit', {'Origin': LIVE_ORIGIN, 'Access-Control-Request-Method': 'POST', 'Access-Control-Request-Headers': 'x-draftlab-session'}, 'OPTIONS') as response:
+            self.assertEqual(response.status, 204)
+        self.request('/api/quit', headers, 'POST').close()
+        self.assertTrue(self.stop.is_set())
+
+    def test_non_loopback_bind_is_rejected(self):
+        with self.assertRaises(ValueError):
+            BridgeServer(('0.0.0.0', 0), self.state, self.stop)
 
     def test_state_revision_changes_only_when_meaningful(self):
         self.state.publish("connected", "Ready", None)

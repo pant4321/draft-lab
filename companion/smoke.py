@@ -11,7 +11,7 @@ from urllib.parse import parse_qs, urlsplit
 from urllib.request import Request, urlopen
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from companion.app import VERSION
+from companion.app import VERSION, LIVE_SITE, LIVE_ORIGIN
 
 
 def main():
@@ -28,19 +28,13 @@ def main():
                     raise RuntimeError('Companion did not start.')
                 time.sleep(.1)
             launch = urlsplit(json.loads(ready.read_text())['url'])
-            origin = f'{launch.scheme}://{launch.netloc}'
-            token = parse_qs(launch.fragment)['companion'][0]
-            headers = {'X-DraftLab-Session': token}
-            with urlopen(origin + '/') as response:
-                assert b'Draft Lab' in response.read()
-            with urlopen(origin + '/data/draft/catalog.json') as response:
-                assert len(json.load(response)['champions']) >= 173
-            with urlopen(origin + '/data/datasets.json') as response:
-                datasets=json.load(response)
-                assert datasets['default']=='combined'
-                history=next(entry for entry in datasets['datasets'] if entry['kind']=='historical')
-            with urlopen(origin + '/' + history['base'] + '/catalog.json') as response:
-                assert json.load(response)['window']=='30 days'
+            assert launch.scheme + '://' + launch.netloc + launch.path == LIVE_SITE
+            params = parse_qs(launch.fragment)
+            origin = 'http://127.0.0.1:' + params['port'][0]
+            token = params['companion'][0]
+            headers = {'X-DraftLab-Session': token, 'Origin': LIVE_ORIGIN}
+            with urlopen(Request(origin + '/api/state', headers={'Origin': LIVE_ORIGIN, 'Access-Control-Request-Method': 'GET', 'Access-Control-Request-Headers': 'x-draftlab-session'}, method='OPTIONS')) as response:
+                assert response.status == 204 and response.headers['Access-Control-Allow-Origin'] == LIVE_ORIGIN
             with urlopen(Request(origin + '/api/state', headers=headers)) as response:
                 assert json.load(response)['companionVersion'] == VERSION
             try:
@@ -51,7 +45,7 @@ def main():
             with urlopen(Request(origin + '/api/quit', headers=headers, method='POST')) as response:
                 assert json.load(response)['stopping']
             assert process.wait(timeout=15) == 0
-            print('Frozen executable smoke test passed: startup, UI, bundled data, authenticated API, shutdown.')
+            print('Frozen executable smoke test passed: live-site launch, strict CORS, authenticated API, shutdown.')
         finally:
             if process.poll() is None:
                 process.terminate()

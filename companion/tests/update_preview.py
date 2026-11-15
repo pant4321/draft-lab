@@ -16,7 +16,7 @@ def main():
     args = parser.parse_args()
     stop, state = threading.Event(), State()
     state.publish("connected", "Update-check preview", None)
-    server = BridgeServer(("127.0.0.1", 0), Path(__file__).parents[2] / "dist", state, stop)
+    server = BridgeServer(("127.0.0.1", 0), state, stop)
     serving = threading.Thread(target=server.serve_forever, daemon=True)
     serving.start()
     checker = UpdateChecker(state, stop, args.installed_version)

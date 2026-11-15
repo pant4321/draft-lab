@@ -12,7 +12,7 @@ def main():
     parser.add_argument('ready', type=Path)
     args = parser.parse_args()
     stop, state = threading.Event(), State()
-    server = BridgeServer(('127.0.0.1', 8767), Path(__file__).parents[2] / 'dist', state, stop)
+    server = BridgeServer(('127.0.0.1', 8767), state, stop)
     worker = threading.Thread(target=server.serve_forever, daemon=True)
     worker.start()
     args.ready.write_text(json.dumps({'url': server.launch_url}), encoding='utf-8')

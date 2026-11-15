@@ -12,11 +12,14 @@ test('entry script and stylesheet cache versions match their content for existin
   assert.ok(html.includes(`${attribute}="${file}?v=${version}"`),`Refresh the cache version after editing ${file}.`);
  }
  const entry=readFileSync(new URL('draft.mjs',root),'utf8');
- for(const file of ['blindability.mjs','datasets.mjs']){
+ for(const file of ['blindability.mjs','datasets.mjs','companion.mjs','companion-session.mjs','analytics.mjs']){
   const source=readFileSync(new URL(file,root),'utf8').replace(/\r\n/g,'\n');
   const version=createHash('sha256').update(source).digest('hex').slice(0,12);
   assert.ok(entry.includes(`from './${file}?v=${version}'`),`Refresh the ${file} import version when it changes.`);
  }
+ const bridge=readFileSync(new URL('companion.mjs',root),'utf8');
+ const session=readFileSync(new URL('companion-session.mjs',root),'utf8').replace(/\r\n/g,'\n');
+ assert.ok(bridge.includes(`from './companion-session.mjs?v=${createHash('sha256').update(session).digest('hex').slice(0,12)}'`));
 });
 
 test('entry assets, module imports and initial data work at the GitHub Pages project path',()=>{
