@@ -2,3 +2,7 @@ cache/
 cache-*/
 *.tar.gz
 node_modules/
+.venv-companion/
+build/
+__pycache__/
+*.pyc

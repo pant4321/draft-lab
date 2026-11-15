@@ -1,0 +1,31 @@
+name: Build Windows companion
+
+on:
+  push:
+    tags: ['companion-v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install build tooling
+        run: python -m pip install -r companion/requirements-build.txt
+      - name: Test and build
+        run: python companion/build.py
+      - name: Smoke test executable
+        run: python companion/smoke.py build/companion-release/DraftLab.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DraftLab-Windows
+          path: build/companion-release/DraftLab.exe

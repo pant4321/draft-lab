@@ -31,13 +31,21 @@ The collector reads LoLalytics' public champion build pages for enemy pairs and 
 
 Role tier lists identify candidate roles. A role profile needs at least 1,000 champion games and 0.25% of the listed role pool, or must be that champion's most-played role. All 173 champions have at least one supported role. Picks entered in either draft can use any champion; the assigned slot determines the role used for pair lookup.
 
+## Windows companion
+
+[Download DraftLab.exe](https://github.com/pant4321/draft-lab/releases/latest/download/DraftLab.exe), run it, and leave its launcher open while drafting. It opens the bundled Draft Lab interface in your browser. No Python installation or Riot API key is required. The launcher auto-detects League; use `League folder…` if League is installed somewhere it cannot find. `Open Draft Lab` reopens the interface, and `Quit` stops the companion.
+
+The companion reads locked champion-select picks, completed bans, and your assigned role from the local League Client API about once a second. Teammate assigned roles are hints, enemy roles are inferred, and your manual role corrections always win. A new draft clears previous corrections. `Live sync` pauses or resumes importing; manually editing picks or bans during champion select also pauses it. Dragging roles continues live sync. Your own locked champion appears in your reserved slot. Public GitHub Pages remains usable for manual drafting.
+
+Only loopback connections are accepted. Riot's local credentials stay in the native process, the client connection verifies the bundled Riot certificate, and the browser bridge requires its own per-launch session token. The companion only calls the two read endpoints for gameflow and champion select. It does not send player identities to the page or operate picks/bans in the League client. Stats and portraits are bundled; this release uses the frozen dataset documented below. The initial Windows executable is unsigned. See [companion setup and build notes](companion/README.md).
+
 ## Role assignment
 
 Drag a revealed champion to another role on the same team. The card lifts when pressed, then follows the mouse as an opaque card with a shadow while the source slot fades and valid targets glow. Dropping onto an occupied role swaps both champions. Escape or releasing outside a valid role cancels the move. The ↔ button offers the same move options for keyboard and touch use. Your own recommendation slot remains reserved; preview suggestions cannot be moved into the recorded draft.
 
 Enable `Auto roles` to estimate roles whenever picks change. The guesser tests every valid one-to-one team assignment and maximizes the product of each champion's role usage, derived from its saved games by role. This lets later picks resolve earlier flex picks. An unsupported role gets a one-game fallback weight, allowing unusual assignments when needed without treating missing data as a normal role. Exact ties prefer existing placements. The result is a heuristic based on the supported role snapshot, not a calibrated role probability.
 
-A `?` flags an unsupported role or another assignment within a factor of two of the best joint likelihood. A manual move pins that champion's role, marked `SET`; a manual swap pins both. Corrections follow champion IDs across role inference updates and remain until that champion leaves the draft, `Clear corrections` is used, or the draft is reset. Auto roles, draft state, and corrections persist in browser storage. Auto roles starts off for existing manual drafting. The pure assignment module can consume future companion snapshots, but client auto-fill is not connected yet.
+A `?` flags an unsupported role or another assignment within a factor of two of the best joint likelihood. A manual move pins that champion's role, marked `SET`; a manual swap pins both. Corrections follow champion IDs across role inference updates and remain until that champion leaves the draft, `Clear corrections` is used, or the draft is reset. Auto roles, draft state, and corrections persist in browser storage. Auto roles starts off for existing manual drafting. The Windows companion uses this same assignment module for live client snapshots.
 
 Recollect with Python and `beautifulsoup4`:
 

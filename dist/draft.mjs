@@ -1,6 +1,8 @@
 import {ROLES,ROLE_NAMES,emptyDraft,rankDraft,validateDraft} from './draft-math.mjs';
 import {roleBlindability} from './blindability.mjs';
 import {inferDraftRoles,moveDraftChampion,cleanRoleOverrides} from './draft-roles.mjs';
+import {mergeClientSnapshot,combineRoleHints} from './draft-sync.mjs';
+import {connectCompanion} from './companion.mjs';
 import {matchupSpreadGraph} from './matchup-spread.mjs';
 const $=id=>document.getElementById(id),esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const signed=v=>(v>0?'+':'')+v.toFixed(2),tone=v=>v>.005?'positive':v<-.005?'negative':'zero';
@@ -8,6 +10,7 @@ const norm=s=>s.toLowerCase().replace(/[^a-z0-9]/g,''),num=n=>n.toLocaleString('
 const STORAGE='draftlab-draft-v1';
 let catalog,champions=new Map(),draft=emptyDraft(),profiles={},ranking=null,selected=null,includeStrength=false,picker=null,revision=0;
 let autoRoles=false,roleOverrides={allies:{},enemies:{}},roleDetails={},dragging=null,dragPress=null,dragPreview=null,suppressDragClickUntil=0;
+let companion=null,clientSyncing=false,clientHints={},clientOwnChampion=null,clientSession=null,clientRoleOverride=null,queuedClientSnapshot=null;
 const roleRequests={};
 const blindByRole={};
 function champion(id){return champions.get(Number(id));}
@@ -21,27 +24,27 @@ function renderBoard(){
  for(const side of ['allies','enemies']) {
   $(side).innerHTML=ROLES.map(role=>{
    const own=side==='allies'&&role===draft.role;
-   const id=own?selected:draft[side][role],c=champion(id),name=c?.name??(own?'':'Choose champion');
+   const id=own?(clientOwnChampion??selected):draft[side][role],c=champion(id),name=c?.name??(own?'':'Choose champion');
    const fixed=!own&&roleOverrides[side]?.[id]===role,guess=!own&&roleDetails[side]?.[id];
    const uncertain=guess&&!fixed&&(guess.unsupported||guess.alternatives.length);
    const hint=fixed?'Manual role. Auto roles will keep this correction.':uncertain?(guess.unsupported?'Limited role data. Drag to correct.':'Could also be '+guess.alternatives.map(r=>ROLE_NAMES[r]).join(' or ')+'. Drag to correct.'):'Drag to move; drop on a champion to swap roles.';
    const marker=fixed?'<span class="role-marker fixed" title="Manual role correction">SET</span>':uncertain?'<span class="role-marker uncertain" title="'+esc(hint)+'">?</span>':'';
-   const body=`${c?img(id):'<span class="placeholder">'+(own?'◈':'+')+'</span>'}<span class="slot-text"><span class="slot-role">${ROLE_NAMES[role]}${marker}${own?'<span class="you-tag">'+(c?'PREVIEW':'YOU')+'</span>':''}</span><span class="slot-name">${esc(name)}</span></span>`;
+   const body=`${c?img(id):'<span class="placeholder">'+(own?'◈':'+')+'</span>'}<span class="slot-text"><span class="slot-role">${ROLE_NAMES[role]}${marker}${own?'<span class="you-tag">'+(clientOwnChampion?'LOCKED':c?'PREVIEW':'YOU')+'</span>':''}</span><span class="slot-name">${esc(name)}</span></span>`;
    return `<div data-slot-side="${side}" data-slot-role="${role}" class="slot ${own?'you':!c?'slot-empty':''}">${own?`<div class="slot-main" aria-label="Your ${ROLE_NAMES[role]} pick preview">${body}</div>`:`<button class="slot-main" draggable="${!!c}" title="${c?esc(hint):''}" data-side="${side}" data-role="${role}" aria-label="Choose ${side==='allies'?'allied':'enemy'} ${ROLE_NAMES[role]}">${body}</button>`}${!own&&c?`<button class="slot-move" data-move="${side}" data-role="${role}" aria-label="Move ${esc(c.name)} to another ${side==='allies'?'allied':'enemy'} role" title="Move or swap role">↔</button><button class="slot-clear" data-clear="${side}" data-role="${role}" aria-label="Remove ${esc(c.name)} from ${side==='allies'?'allied':'enemy'} ${ROLE_NAMES[role]}">×</button>`:''}</div>`;
   }).join('');
  }
  document.querySelectorAll('.slot-main[data-side]').forEach(b=>b.onclick=()=>openPicker({side:b.dataset.side,role:b.dataset.role}));
- document.querySelectorAll('[data-clear]').forEach(b=>b.onclick=()=>{draft[b.dataset.clear][b.dataset.role]=null;update();});
+ document.querySelectorAll('[data-clear]').forEach(b=>b.onclick=()=>{pauseForManualEdit();draft[b.dataset.clear][b.dataset.role]=null;update();});
  $('allied-count').textContent=Object.values(draft.allies).filter(x=>x!=null).length+' revealed';
  $('enemy-count').textContent=Object.values(draft.enemies).filter(x=>x!=null).length+' revealed';
  document.querySelectorAll('[data-move]').forEach(b=>b.onclick=()=>openRoleMover(b.dataset.move,b.dataset.role));
- $('auto-roles').checked=autoRoles;
+ $('auto-roles').checked=autoRoles;$('auto-roles').disabled=clientSyncing;
  $('clear-role-pins').hidden=!Object.values(roleOverrides).some(p=>Object.keys(p).length);
  $('your-role').value=draft.role;
  for(const option of $('your-role').options)option.disabled=draft.allies[option.value]!=null;
  $('include-strength').checked=includeStrength;
  $('ban-chips').innerHTML=draft.bans.map(id=>`<button class="ban-chip" data-unban="${id}" aria-label="Unban ${esc(champion(id).name)}">${img(id,'')}<span>${esc(champion(id).name)} ×</span></button>`).join('');
- document.querySelectorAll('[data-unban]').forEach(b=>b.onclick=()=>{draft.bans=draft.bans.filter(id=>id!==+b.dataset.unban);update();});
+ document.querySelectorAll('[data-unban]').forEach(b=>b.onclick=()=>{pauseForManualEdit();draft.bans=draft.bans.filter(id=>id!==+b.dataset.unban);update();});
 }
 function renderRanking(){
  hideSpread();
@@ -70,7 +73,7 @@ async function update(){
  clearDrag();hideSpread();const current=++revision;$('status').textContent='';
  try{
   roleOverrides=cleanRoleOverrides(draft,roleOverrides);roleDetails={};
-  if(autoRoles){const guess=inferDraftRoles(draft,champions,roleOverrides);draft=guess.draft;roleDetails=guess.details;}
+  if(autoRoles){const guess=inferDraftRoles(draft,champions,combineRoleHints(draft,roleOverrides,clientHints));draft=guess.draft;roleDetails=guess.details;}
   persist();renderBoard();
   if(!profiles[draft.role]){
    ranking=null;selected=null;$('breakdown').hidden=true;$('ranking-footer').textContent='';
@@ -90,7 +93,7 @@ async function update(){
  }catch(e){if(current===revision){$('status').textContent=e.message;$('rankings').innerHTML='<div class="empty"><h3>Data unavailable.</h3><p>Try selecting your role again.</p></div>';$('breakdown').hidden=true;}}
 }
 function openPicker(target){
- hideSpread();picker=target;$('picker-title').textContent=target.ban?'Choose bans':`Choose ${target.side==='allies'?'allied':'enemy'} ${ROLE_NAMES[target.role]}`;
+ pauseForManualEdit();hideSpread();picker=target;$('picker-title').textContent=target.ban?'Choose bans':`Choose ${target.side==='allies'?'allied':'enemy'} ${ROLE_NAMES[target.role]}`;
  $('picker-search').value='';renderPicker();$('champion-picker').showModal();$('picker-search').focus();
 }
 function renderPicker(){
@@ -117,7 +120,7 @@ async function applyRoleMove(side,from,to,id,focus=false){
  try{
   if(draft[side][from]!==id)throw Error('The draft changed. Try moving the champion again.');
   const moved=moveDraftChampion(draft,side,from,to,roleOverrides);draft=moved.draft;roleOverrides=moved.overrides;
-  $('role-mover').close();await update();
+  $('role-mover').close();await update();flushQueuedClient();
   if(focus)document.querySelector(`[data-move="${side}"][data-role="${to}"]`)?.focus({preventScroll:true});
  }catch(e){$('status').textContent=e.message;}
 }
@@ -158,13 +161,15 @@ document.addEventListener('pointerup',e=>{
  const source=dragging,slot=document.elementFromPoint(e.clientX,e.clientY)?.closest('[data-slot-side]'),to=validDrop(slot)?slot.dataset.slotRole:null;
  if(source){e.preventDefault();suppressDragClickUntil=performance.now()+250;}
  clearDrag();if(source&&to&&source.role!==to)applyRoleMove(source.side,source.role,to,source.id);
+ flushQueuedClient();
 });
-document.addEventListener('pointercancel',clearDrag);
-window.addEventListener('blur',clearDrag);
-document.addEventListener('keydown',e=>{if(e.key==='Escape'&&dragPress){e.preventDefault();suppressDragClickUntil=performance.now()+250;clearDrag();}});
+document.addEventListener('pointercancel',()=>{clearDrag();flushQueuedClient();});
+window.addEventListener('blur',()=>{clearDrag();flushQueuedClient();});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&dragPress){e.preventDefault();suppressDragClickUntil=performance.now()+250;clearDrag();flushQueuedClient();}});
 document.addEventListener('dragstart',e=>{if(e.target.closest('.slot-main[draggable="true"]'))e.preventDefault();});
 document.addEventListener('click',e=>{if(performance.now()<suppressDragClickUntil){e.preventDefault();e.stopImmediatePropagation();}},true);
-$('close-role-mover').onclick=()=>{$('role-mover').close();};
+$('close-role-mover').onclick=()=>{$('role-mover').close();flushQueuedClient();};
+$('role-mover').addEventListener('cancel',()=>setTimeout(flushQueuedClient,0));
 const spreadPopup=$('blindability-popover');
 let spreadTrigger=null,spreadTimer,suppressedTrigger=null;
 const graphCache={};
@@ -221,14 +226,36 @@ $('picker-search').oninput=renderPicker;
 $('add-ban').onclick=()=>openPicker({ban:true});
 $('candidate-search').oninput=renderRanking;
 $('include-strength').onchange=()=>{includeStrength=$('include-strength').checked;update();};
-$('your-role').onchange=()=>{const role=$('your-role').value;if(draft.allies[role]!=null){$('your-role').value=draft.role;return;}draft.role=role;selected=null;update();};
+$('your-role').onchange=()=>{const role=$('your-role').value;if(draft.allies[role]!=null){$('your-role').value=draft.role;return;}draft.role=role;if(clientSyncing)clientRoleOverride=role;selected=null;update();};
 $('auto-roles').onchange=()=>{autoRoles=$('auto-roles').checked;update();};
 $('clear-role-pins').onclick=()=>{roleOverrides={allies:{},enemies:{}};update();};
-$('reset').onclick=()=>{draft=emptyDraft(draft.role);roleOverrides={allies:{},enemies:{}};selected=null;$('candidate-search').value='';update();};
+$('reset').onclick=()=>{pauseForManualEdit();draft=emptyDraft(draft.role);roleOverrides={allies:{},enemies:{}};selected=null;$('candidate-search').value='';update();};
+function pauseForManualEdit(){
+ if(companion&&clientSyncing)companion.pause();
+}
+function acceptClientSnapshot(snapshot){
+ if(dragPress||$('role-mover').open){queuedClientSnapshot=snapshot;return;}
+ const newSession=clientSession!==snapshot.sessionId;
+ if(newSession)clientRoleOverride=null;
+ try{
+  const result=mergeClientSnapshot(draft,snapshot,champions,{overrides:roleOverrides,newSession,roleOverride:clientRoleOverride});
+  draft=result.draft;roleOverrides=result.overrides;clientHints=result.hints;clientOwnChampion=result.ownChampion;clientSession=snapshot.sessionId;autoRoles=true;
+  update();
+  if(result.unknown.length)$('companion-status').textContent='Some champions are missing from this snapshot';
+ }catch{$('companion-status').textContent='Draft could not be synced. Pause sync to enter picks manually.';}
+}
+function flushQueuedClient(){
+ if(queuedClientSnapshot&&!dragPress&&!$('role-mover').open&&clientSyncing){const next=queuedClientSnapshot;queuedClientSnapshot=null;acceptClientSnapshot(next);}
+}
 try{
  const response=await fetch('data/draft/catalog.json');if(!response.ok)throw Error('Champion data could not be loaded.');
  catalog=await response.json();champions=new Map(catalog.champions.map(c=>[c.id,c]));
  restore();$('snapshot').textContent='All ranks · 30 days · '+new Date(catalog.asOf).toLocaleDateString('en-US',{month:'short',day:'numeric',timeZone:'America/Los_Angeles'});
  $('data-details').textContent=`Frozen LoLalytics global ranked solo/duo snapshot. ${catalog.champions.length} champions and ${Object.values(catalog.profileCounts).reduce((s,n)=>s+n,0)} champion-role profiles. Candidate roles have at least 1,000 games and 0.25% of the listed role pool, or are the champion's primary role. Each profile retains its source URLs and hashes.`;
  await update();
+ companion=connectCompanion(state=>{
+  clientSyncing=state.syncing;
+  if(!state.enabled){queuedClientSnapshot=null;clientHints={};clientOwnChampion=null;}
+  $('auto-roles').disabled=clientSyncing;
+ },acceptClientSnapshot);
 }catch(e){$('status').textContent=e.message;}
