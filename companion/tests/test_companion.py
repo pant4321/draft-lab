@@ -104,7 +104,7 @@ class BridgeTests(unittest.TestCase):
     def request(self, path, headers=None, method="GET"):
         return urlopen(Request(self.server.origin + path, headers=headers or {}, method=method), timeout=2)
 
-    def test_auth_host_origin_and_read_only_static_serving(self):
+    def test_auth_host_origin_and_no_static_file_serving(self):
         for path in ("/", "/draft.mjs", "/data/draft/catalog.json", "/../companion/app.py"):
             with self.assertRaises(HTTPError) as error:
                 self.request(path)
@@ -121,7 +121,7 @@ class BridgeTests(unittest.TestCase):
         with self.assertRaises(HTTPError):
             self.request("/data/")
         self.request("/api/quit", auth, "POST").close()
-        self.assertTrue(self.stop.is_set())
+        self.assertTrue(self.stop.wait(1))
 
     def test_live_launch_and_strict_cors_preflight(self):
         from urllib.parse import parse_qs, urlsplit
@@ -160,7 +160,7 @@ class BridgeTests(unittest.TestCase):
         with self.request('/api/quit', {'Origin': LIVE_ORIGIN, 'Access-Control-Request-Method': 'POST', 'Access-Control-Request-Headers': 'x-draftlab-session'}, 'OPTIONS') as response:
             self.assertEqual(response.status, 204)
         self.request('/api/quit', headers, 'POST').close()
-        self.assertTrue(self.stop.is_set())
+        self.assertTrue(self.stop.wait(1))
 
     def test_non_loopback_bind_is_rejected(self):
         with self.assertRaises(ValueError):
