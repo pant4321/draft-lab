@@ -37,8 +37,8 @@ function renderBoard(){
 function renderRanking(){
  hideSpread();
  if(!ranking?.ready){
-  $('ranking-context').textContent='Add the picks you can see.';
-  $('rankings').innerHTML='<div class="empty"><div class="empty-icon">◈</div><h3>The draft starts here.</h3><p>Add revealed champions on either side.</p></div>';
+  $('ranking-context').textContent='';
+  $('rankings').innerHTML='<div class="empty"><div class="empty-icon">◈</div><p>Add champions on either side to see recommended champions</p></div>';
   $('ranking-footer').textContent='';$('breakdown').hidden=true;selected=null;renderBoard();return;
  }
  const allied=Object.values(draft.allies).filter(x=>x!=null).length,enemy=Object.values(draft.enemies).filter(x=>x!=null).length;
