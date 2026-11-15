@@ -21,7 +21,7 @@ Open http://127.0.0.1:8765. Host `dist/` as a static site.
 
 This repository hosts the site on GitHub Pages at https://pant4321.github.io/draft-lab/. The workflow in `.github/workflows/pages.yml` runs the tests, uploads `dist/`, and deploys after a push to `main`. It can also be run manually from the repository's Actions tab. In Settings → Pages, the publishing source is GitHub Actions.
 
-No build step, server, API key, or runtime data service is required. Site links, module imports, portraits, and data paths are relative so they work under the `/draft-lab/` project path. Tests check those paths alongside the scoring and dataset tests. The entry script URL includes a hash of its LF-normalized content to refresh cached JavaScript after updates; refresh this query in `dist/index.html` whenever `dist/draft.mjs` changes. Picks stay in browser storage for this origin; drafts saved on the previous hosting address do not transfer automatically. To update the frozen dataset, run the collector locally, review the resulting files, run the tests, and push the update.
+No build step, server, API key, or runtime data service is required. Site links, module imports, portraits, and data paths are relative so they work under the `/draft-lab/` project path. Tests check those paths alongside the scoring and dataset tests. The entry script and stylesheet URLs include hashes of their LF-normalized contents to refresh cached files after updates; refresh these queries in `dist/index.html` whenever `dist/draft.mjs` or `dist/draft.css` changes. Picks stay in browser storage for this origin; drafts saved on the previous hosting address do not transfer automatically. To update the frozen dataset, run the collector locally, review the resulting files, run the tests, and push the update.
 
 ## Dataset
 
@@ -29,7 +29,15 @@ The frozen November 14, 2026 snapshot contains 173 champions, 263 champion-role 
 
 The collector reads LoLalytics' public champion build pages for enemy pairs and the same public team endpoint used by its Synergy tab for ally pairs. Every profile retains both source URLs, response hashes, and collection time. It uses published normalized Delta 2 values, rather than treating raw matchup win rates as counter or synergy strength. No Machine LoLing code, scores, data, or weights are used. The spread graph follows the user-supplied visual reference.
 
-Role tier lists identify candidate roles. A role profile needs at least 1,000 champion games and 0.25% of the listed role pool, or must be that champion's most-played role. All 173 champions have at least one supported role. Picks entered in either draft can use any champion; the chosen slot determines the role used for pair lookup. Role assignment is manual, including flex picks.
+Role tier lists identify candidate roles. A role profile needs at least 1,000 champion games and 0.25% of the listed role pool, or must be that champion's most-played role. All 173 champions have at least one supported role. Picks entered in either draft can use any champion; the assigned slot determines the role used for pair lookup.
+
+## Role assignment
+
+Drag a revealed champion to another role on the same team. Dropping onto an occupied role swaps both champions. The ↔ button offers the same move options for keyboard and touch use. Your own recommendation slot remains reserved; preview suggestions cannot be moved into the recorded draft.
+
+Enable `Auto roles` to estimate roles whenever picks change. The guesser tests every valid one-to-one team assignment and maximizes the product of each champion's role usage, derived from its saved games by role. This lets later picks resolve earlier flex picks. An unsupported role gets a one-game fallback weight, allowing unusual assignments when needed without treating missing data as a normal role. Exact ties prefer existing placements. The result is a heuristic based on the supported role snapshot, not a calibrated role probability.
+
+A `?` flags an unsupported role or another assignment within a factor of two of the best joint likelihood. A manual move pins that champion's role, marked `SET`; a manual swap pins both. Corrections follow champion IDs across role inference updates and remain until that champion leaves the draft, `Clear corrections` is used, or the draft is reset. Auto roles, draft state, and corrections persist in browser storage. Auto roles starts off for existing manual drafting. The pure assignment module can consume future companion snapshots, but client auto-fill is not connected yet.
 
 Recollect with Python and `beautifulsoup4`:
 
@@ -76,7 +84,7 @@ The per-group spread in the graph differs from the overall spread used for the 0
 
 `npm test` covers the exact two-ally/three-enemy jungle example, scoring across enemy roles, synergy-driven changes in the best pick, duplicate and ban handling, missing data, empty drafts, sample adjustment, optional strength, all 405,150 pair cells, candidate coverage for all 173 champions, and a real five-pair draft in every role. Qiyana calculation tests remain separately available.
 
-Browser checks exercise manual picks, exclusion rules, bans, role changes, search, contribution breakdowns, and draft reset. Blindability checks cover variance correction, role-relative ranking and ties, insufficient data, and exact score/ranking invariance. Spread popup browser checks cover tap, keyboard focus, Escape, close, champion selection, matchup group changes, unchanged draft edge, and viewport containment at desktop and 390px width. Draft state stays in browser local storage. Reset clears picks and bans; the chosen role and optional score mode remain selected.
+Browser checks exercise manual picks, exclusion rules, bans, role changes, search, contribution breakdowns, and draft reset. Role-assignment tests cover joint flex-pick inference, later arrivals, ties, uncertain assignments, own-role exclusion, stale corrections, swaps, and scoring against corrected roles. Browser checks cover a native drag to an empty role, swaps via the move button, corrections surviving new picks and reloads, clearing corrections, and the mobile move dialog. Blindability checks cover variance correction, role-relative ranking and ties, insufficient data, and exact score/ranking invariance. Spread popup browser checks cover tap, keyboard focus, Escape, close, champion selection, matchup group changes, unchanged draft edge, and viewport containment at desktop and 390px width. Draft state stays in browser local storage. Reset clears picks, bans and manual role corrections; the chosen role, auto-role setting and optional score mode remain selected.
 
 ## Next validation
 

@@ -3,12 +3,14 @@ import assert from 'node:assert/strict';
 import {existsSync,readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 
-test('entry script cache version matches its content so existing visitors receive updates',()=>{
+test('entry script and stylesheet cache versions match their content for existing visitors',()=>{
  const root=new URL('../dist/',import.meta.url);
  const html=readFileSync(new URL('index.html',root),'utf8');
- const source=readFileSync(new URL('draft.mjs',root),'utf8').replace(/\r\n/g,'\n');
- const version=createHash('sha256').update(source).digest('hex').slice(0,12);
- assert.ok(html.includes(`src="draft.mjs?v=${version}"`),'Refresh the entry script cache version after editing draft.mjs.');
+ for(const [file,attribute] of [['draft.mjs','src'],['draft.css','href']]){
+  const source=readFileSync(new URL(file,root),'utf8').replace(/\r\n/g,'\n');
+  const version=createHash('sha256').update(source).digest('hex').slice(0,12);
+  assert.ok(html.includes(`${attribute}="${file}?v=${version}"`),`Refresh the cache version after editing ${file}.`);
+ }
 });
 
 test('entry assets, module imports and initial data work at the GitHub Pages project path',()=>{

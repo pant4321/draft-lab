@@ -1,33 +1,42 @@
 import {ROLES,ROLE_NAMES,emptyDraft,rankDraft,validateDraft} from './draft-math.mjs';
 import {roleBlindability} from './blindability.mjs';
+import {inferDraftRoles,moveDraftChampion,cleanRoleOverrides} from './draft-roles.mjs';
 import {matchupSpreadGraph} from './matchup-spread.mjs';
 const $=id=>document.getElementById(id),esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const signed=v=>(v>0?'+':'')+v.toFixed(2),tone=v=>v>.005?'positive':v<-.005?'negative':'zero';
 const norm=s=>s.toLowerCase().replace(/[^a-z0-9]/g,''),num=n=>n.toLocaleString('en-US');
 const STORAGE='draftlab-draft-v1';
 let catalog,champions=new Map(),draft=emptyDraft(),profiles={},ranking=null,selected=null,includeStrength=false,picker=null,revision=0;
+let autoRoles=false,roleOverrides={allies:{},enemies:{}},roleDetails={},dragging=null;
 const roleRequests={};
 const blindByRole={};
 function champion(id){return champions.get(Number(id));}
 function blindInfo(id){return blindByRole[draft.role]?.[id];}
 function blindTitle(id){const b=blindInfo(id);return b?.score!=null?`Role-relative blindability: ${b.score}/100. Higher = more consistent across opponents and teammates. Estimated spread ${b.spread.toFixed(2)} pp; compared with ${b.comparedWith} ${ROLE_NAMES[draft.role].toLowerCase()} picks. Independent of this draft and its score.`:(b?.reason??'Not enough comparable role data.');}
 function blindCell(id){const b=blindInfo(id);return `<button type="button" data-blind="${id}" aria-haspopup="dialog" aria-expanded="false" aria-controls="blindability-popover" class="blind-score ${b?.score!=null?(b.score>=67?'blind-high':b.score<=33?'blind-low':'blind-mid'):'zero'}" aria-label="${esc(champion(id).name)} matchup WR delta spread. ${esc(blindTitle(id))}">${b?.score!=null?b.score+'<small>/100</small>':'—'}</button>`;}
-function img(id,cls='portrait'){const c=champion(id);return c?`<img class="${cls}" src="assets/${esc(c.key)}.png" alt="">`:'';}
-function persist(){try{localStorage.setItem(STORAGE,JSON.stringify({draft,includeStrength}));}catch{}}
-function restore(){try{const value=JSON.parse(localStorage.getItem(STORAGE));if(value?.draft){validateDraft(value.draft);for(const id of [...Object.values(value.draft.allies),...Object.values(value.draft.enemies),...value.draft.bans])if(id!=null&&!champions.has(id))throw Error('Unknown saved champion.');draft=value.draft;includeStrength=!!value.includeStrength;}}catch{draft=emptyDraft();}}
+function img(id,cls='portrait'){const c=champion(id);return c?`<img class="${cls}" draggable="false" src="assets/${esc(c.key)}.png" alt="">`:'';}
+function persist(){try{localStorage.setItem(STORAGE,JSON.stringify({draft,includeStrength,autoRoles,roleOverrides}));}catch{}}
+function restore(){try{const value=JSON.parse(localStorage.getItem(STORAGE));if(value?.draft){validateDraft(value.draft);for(const id of [...Object.values(value.draft.allies),...Object.values(value.draft.enemies),...value.draft.bans])if(id!=null&&!champions.has(id))throw Error('Unknown saved champion.');draft=value.draft;includeStrength=!!value.includeStrength;autoRoles=!!value.autoRoles;roleOverrides=cleanRoleOverrides(draft,value.roleOverrides);}}catch{draft=emptyDraft();}}
 function renderBoard(){
  for(const side of ['allies','enemies']) {
   $(side).innerHTML=ROLES.map(role=>{
    const own=side==='allies'&&role===draft.role;
    const id=own?selected:draft[side][role],c=champion(id),name=c?.name??(own?'':'Choose champion');
-   const body=`${c?img(id):'<span class="placeholder">'+(own?'◈':'+')+'</span>'}<span class="slot-text"><span class="slot-role">${ROLE_NAMES[role]}${own?'<span class="you-tag">'+(c?'PREVIEW':'YOU')+'</span>':''}</span><span class="slot-name">${esc(name)}</span></span>`;
-   return `<div class="slot ${own?'you':!c?'slot-empty':''}">${own?`<div class="slot-main" aria-label="Your ${ROLE_NAMES[role]} pick preview">${body}</div>`:`<button class="slot-main" data-side="${side}" data-role="${role}" aria-label="Choose ${side==='allies'?'allied':'enemy'} ${ROLE_NAMES[role]}">${body}</button>`}${!own&&c?`<button class="slot-clear" data-clear="${side}" data-role="${role}" aria-label="Remove ${esc(c.name)} from ${side==='allies'?'allied':'enemy'} ${ROLE_NAMES[role]}">×</button>`:''}</div>`;
+   const fixed=!own&&roleOverrides[side]?.[id]===role,guess=!own&&roleDetails[side]?.[id];
+   const uncertain=guess&&!fixed&&(guess.unsupported||guess.alternatives.length);
+   const hint=fixed?'Manual role. Auto roles will keep this correction.':uncertain?(guess.unsupported?'Limited role data. Drag to correct.':'Could also be '+guess.alternatives.map(r=>ROLE_NAMES[r]).join(' or ')+'. Drag to correct.'):'Drag to move; drop on a champion to swap roles.';
+   const marker=fixed?'<span class="role-marker fixed" title="Manual role correction">SET</span>':uncertain?'<span class="role-marker uncertain" title="'+esc(hint)+'">?</span>':'';
+   const body=`${c?img(id):'<span class="placeholder">'+(own?'◈':'+')+'</span>'}<span class="slot-text"><span class="slot-role">${ROLE_NAMES[role]}${marker}${own?'<span class="you-tag">'+(c?'PREVIEW':'YOU')+'</span>':''}</span><span class="slot-name">${esc(name)}</span></span>`;
+   return `<div data-slot-side="${side}" data-slot-role="${role}" class="slot ${own?'you':!c?'slot-empty':''}">${own?`<div class="slot-main" aria-label="Your ${ROLE_NAMES[role]} pick preview">${body}</div>`:`<button class="slot-main" draggable="${!!c}" title="${c?esc(hint):''}" data-side="${side}" data-role="${role}" aria-label="Choose ${side==='allies'?'allied':'enemy'} ${ROLE_NAMES[role]}">${body}</button>`}${!own&&c?`<button class="slot-move" data-move="${side}" data-role="${role}" aria-label="Move ${esc(c.name)} to another ${side==='allies'?'allied':'enemy'} role" title="Move or swap role">↔</button><button class="slot-clear" data-clear="${side}" data-role="${role}" aria-label="Remove ${esc(c.name)} from ${side==='allies'?'allied':'enemy'} ${ROLE_NAMES[role]}">×</button>`:''}</div>`;
   }).join('');
  }
  document.querySelectorAll('.slot-main[data-side]').forEach(b=>b.onclick=()=>openPicker({side:b.dataset.side,role:b.dataset.role}));
  document.querySelectorAll('[data-clear]').forEach(b=>b.onclick=()=>{draft[b.dataset.clear][b.dataset.role]=null;update();});
  $('allied-count').textContent=Object.values(draft.allies).filter(x=>x!=null).length+' revealed';
  $('enemy-count').textContent=Object.values(draft.enemies).filter(x=>x!=null).length+' revealed';
+ document.querySelectorAll('[data-move]').forEach(b=>b.onclick=()=>openRoleMover(b.dataset.move,b.dataset.role));
+ $('auto-roles').checked=autoRoles;
+ $('clear-role-pins').hidden=!Object.values(roleOverrides).some(p=>Object.keys(p).length);
  $('your-role').value=draft.role;
  for(const option of $('your-role').options)option.disabled=draft.allies[option.value]!=null;
  $('include-strength').checked=includeStrength;
@@ -58,8 +67,11 @@ function renderBreakdown(){
  $('breakdown').innerHTML=`<div class="breakdown-head"><div><h2>Why ${esc(c.name)}?</h2><p>Contribution from each revealed pick · sample-adjusted pp</p></div><div class="breakdown-numbers"><span class="blind-detail">Blindability ${blindCell(row.id)}</span><span class="breakdown-total ${tone(row.score)}">${signed(row.score)}</span></div></div><div class="pair-grid">${cards}${base}</div>`;
 }
 async function update(){
- hideSpread();const current=++revision;persist();renderBoard();$('status').textContent='';
+ hideSpread();const current=++revision;$('status').textContent='';
  try{
+  roleOverrides=cleanRoleOverrides(draft,roleOverrides);roleDetails={};
+  if(autoRoles){const guess=inferDraftRoles(draft,champions,roleOverrides);draft=guess.draft;roleDetails=guess.details;}
+  persist();renderBoard();
   if(!profiles[draft.role]){
    ranking=null;selected=null;$('breakdown').hidden=true;$('ranking-footer').textContent='';
    $('ranking-context').textContent='Loading '+ROLE_NAMES[draft.role].toLowerCase()+' pairs…';
@@ -91,9 +103,36 @@ function renderPicker(){
  document.querySelectorAll('[data-pick]').forEach(b=>b.onclick=()=>{
   const id=+b.dataset.pick;
   if(picker.ban){draft.bans=draft.bans.includes(id)?draft.bans.filter(x=>x!==id):[...draft.bans,id];update();renderPicker();$('picker-search').focus();}
-  else{draft[picker.side][picker.role]=id;$('champion-picker').close();picker=null;update();}
+  else{delete roleOverrides[picker.side][draft[picker.side][picker.role]];draft[picker.side][picker.role]=id;$('champion-picker').close();picker=null;update();}
  });
 }
+function openRoleMover(side,role){
+ hideSpread();const id=draft[side][role];if(id==null)return;
+ $('role-mover-title').textContent='Move '+champion(id).name;
+ $('role-move-options').innerHTML=ROLES.filter(r=>r!==role&&!(side==='allies'&&r===draft.role)).map(r=>`<button class="role-option" data-move-to="${r}" aria-label="Move ${esc(champion(id).name)} to ${side==='allies'?'allied':'enemy'} ${ROLE_NAMES[r]}"><span>${ROLE_NAMES[r]}</span><small>${draft[side][r]!=null?'Swap with '+esc(champion(draft[side][r]).name):'Open'}</small></button>`).join('');
+ document.querySelectorAll('[data-move-to]').forEach(b=>b.onclick=()=>applyRoleMove(side,role,b.dataset.moveTo,id,true));
+ $('role-mover').showModal();
+}
+async function applyRoleMove(side,from,to,id,focus=false){
+ try{
+  if(draft[side][from]!==id)throw Error('The draft changed. Try moving the champion again.');
+  const moved=moveDraftChampion(draft,side,from,to,roleOverrides);draft=moved.draft;roleOverrides=moved.overrides;
+  $('role-mover').close();await update();
+  if(focus)document.querySelector(`[data-move="${side}"][data-role="${to}"]`)?.focus({preventScroll:true});
+ }catch(e){$('status').textContent=e.message;}
+}
+function clearDrag(){document.querySelectorAll('.drop-target,.dragging').forEach(el=>el.classList.remove('drop-target','dragging'));dragging=null;}
+function validDrop(slot){return dragging&&slot&&slot.dataset.slotSide===dragging.side&&!(dragging.side==='allies'&&slot.dataset.slotRole===draft.role);}
+document.addEventListener('dragstart',e=>{
+ const source=e.target.closest('.slot-main[draggable="true"]');if(!source)return;
+ const side=source.dataset.side,role=source.dataset.role,id=draft[side][role];if(id==null){e.preventDefault();return;}
+ hideSpread();dragging={side,role,id};e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',String(id));source.closest('.slot').classList.add('dragging');
+});
+document.addEventListener('dragover',e=>{const slot=e.target.closest('[data-slot-side]');if(validDrop(slot)){e.preventDefault();e.dataTransfer.dropEffect='move';document.querySelectorAll('.drop-target').forEach(el=>{if(el!==slot)el.classList.remove('drop-target');});slot.classList.add('drop-target');}});
+document.addEventListener('dragleave',e=>{const slot=e.target.closest('[data-slot-side]');if(slot&&!slot.contains(e.relatedTarget))slot.classList.remove('drop-target');});
+document.addEventListener('drop',e=>{const slot=e.target.closest('[data-slot-side]');if(!validDrop(slot))return;e.preventDefault();const source=dragging,to=slot.dataset.slotRole;clearDrag();if(source.role!==to)applyRoleMove(source.side,source.role,to,source.id);});
+document.addEventListener('dragend',clearDrag);
+$('close-role-mover').onclick=()=>{$('role-mover').close();};
 const spreadPopup=$('blindability-popover');
 let spreadTrigger=null,spreadTimer,suppressedTrigger=null;
 const graphCache={};
@@ -151,7 +190,9 @@ $('add-ban').onclick=()=>openPicker({ban:true});
 $('candidate-search').oninput=renderRanking;
 $('include-strength').onchange=()=>{includeStrength=$('include-strength').checked;update();};
 $('your-role').onchange=()=>{const role=$('your-role').value;if(draft.allies[role]!=null){$('your-role').value=draft.role;return;}draft.role=role;selected=null;update();};
-$('reset').onclick=()=>{draft=emptyDraft(draft.role);selected=null;$('candidate-search').value='';update();};
+$('auto-roles').onchange=()=>{autoRoles=$('auto-roles').checked;update();};
+$('clear-role-pins').onclick=()=>{roleOverrides={allies:{},enemies:{}};update();};
+$('reset').onclick=()=>{draft=emptyDraft(draft.role);roleOverrides={allies:{},enemies:{}};selected=null;$('candidate-search').value='';update();};
 try{
  const response=await fetch('data/draft/catalog.json');if(!response.ok)throw Error('Champion data could not be loaded.');
  catalog=await response.json();champions=new Map(catalog.champions.map(c=>[c.id,c]));
