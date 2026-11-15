@@ -1,6 +1,6 @@
 # Draft Lab Companion
 
-The Windows x64 executable bundles the website, champion portraits, frozen matchup stats, Python runtime, and Riot's local client CA certificate. Download `DraftLab.exe` from the repository's releases and run it. Leave the launcher running while drafting. It opens a local browser page and needs no admin rights, account login, API key, or Python installation.
+The Windows x64 executable bundles the website, champion portraits, combined patch stats and historical 30-day view, Python runtime, and Riot's local client CA certificate. Download `DraftLab.exe` from the repository's releases and run it. Leave the launcher running while drafting. It opens a local browser page and needs no admin rights, account login, API key, or Python installation.
 
 The launcher detects the League install directory from common locations or its running executable path. If detection fails, use **League folder…** and select the directory containing `LeagueClientUx.exe` and `lockfile`. The selected directory is the only setting written to `%LOCALAPPDATA%/DraftLab/settings.json`. Authentication credentials are read from League's lockfile into memory and never written to settings or logs. The companion does not read other processes' memory.
 
@@ -15,6 +15,10 @@ A newer version shows **Download update** in the launcher. Choosing it opens the
 Published v0.1.3 and earlier executables do not include this check. Download v0.1.4 manually once to receive it, along with the graph/picker interaction fixes and champion pools. `--no-update-check` disables the request for offline smoke tests. Source UI testing can use `python -m companion.tests.update_preview --ready-file build/update-preview.json`; this previews an older installed version without opening or modifying the real League client.
 
 **Your pool** saves champions separately for each role, then shows them ahead of other recommendations with the existing blindability or draft-edge ordering preserved within each section. Pools are saved in browser-local storage and survive draft resets. They do not change scores or override bans, taken picks, or data requirements.
+
+## Data views
+
+Version 0.1.5 defaults to combined patches 16.17–16.22, captured November 15, 2026. The **Data** selector also offers the original November 14 30-day history. Switching datasets keeps the current draft and role pools. Both runtime views are bundled and checked against their saved SHA-256 hashes. Discrete source patch archives stay in the repository for offline recombination and future append-only collection; they are not extracted into the executable's runtime files.
 
 ## Sync behavior
 

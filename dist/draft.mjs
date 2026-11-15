@@ -7,6 +7,7 @@ import {connectCompanion} from './companion.mjs';
 import {matchupSpreadGraph} from './matchup-spread.mjs';
 import {retainPopupFocus,dismissOnBackdrop} from './overlays.mjs';
 import {emptyPools,loadPools,savePools,poolSections,prioritizePool} from './champion-pool.mjs';
+import {DatasetStore} from './datasets.mjs?v=b605a99aaef9';
 const $=id=>document.getElementById(id),esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const signed=v=>(v>0?'+':'')+v.toFixed(2),tone=v=>v>.005?'positive':v<-.005?'negative':'zero';
 const norm=s=>s.toLowerCase().replace(/[^a-z0-9]/g,''),num=n=>n.toLocaleString('en-US');
@@ -15,8 +16,8 @@ let catalog,champions=new Map(),draft=emptyDraft(),profiles={},ranking=null,sele
 let autoRoles=false,roleOverrides={allies:{},enemies:{}},roleDetails={},dragging=null,dragPress=null,dragPreview=null,suppressDragClickUntil=0;
 let companion=null,clientSyncing=false,clientHints={},clientOwnChampion=null,clientSession=null,clientRoleOverride=null,queuedClientSnapshot=null;
 let pools=emptyPools(),poolRole=null;
-const roleRequests={};
-const blindByRole={};
+let datasets,activeDataset=null,datasetLoading=true,datasetRevision=0;
+let blindByRole={};
 function champion(id){return champions.get(Number(id));}
 function blindInfo(id){return blindByRole[draft.role]?.[id];}
 function blindTitle(id){const b=blindInfo(id);return b?.score!=null?`Counterpick safety: ${b.score}/100 among ${b.comparedWith} ${ROLE_NAMES[draft.role].toLowerCase()} picks. ${b.counterLoss.toFixed(2)} pp weighted downside across five enemy roles. Negative matchup deltas are sample-adjusted and multiplied by opponent role pick-rate share. Rare picks count less. Base WR, positive bonuses, and ally synergy do not affect this score. Independent of draft edge.`:(b?.reason??'Not enough comparable role data.');}
@@ -86,6 +87,7 @@ function renderBreakdown(){
  $('breakdown').innerHTML=`<div class="breakdown-head"><div><h2>Why ${esc(c.name)}?</h2><p>Contribution from each revealed pick · sample-adjusted pp</p></div><div class="breakdown-numbers"><span class="blind-detail">Blindability ${blindCell(row.id)}</span><span class="breakdown-total ${tone(row.score)}">${signed(row.score)}</span></div></div><div class="pair-grid">${cards}${base}</div>`;
 }
 async function update(){
+ if(datasetLoading)return;
  clearDrag();hideSpread();const current=++revision;$('status').textContent='';
  try{
   roleOverrides=cleanRoleOverrides(draft,roleOverrides);roleDetails={};
@@ -96,8 +98,10 @@ async function update(){
    $('ranking-context').textContent='Loading '+ROLE_NAMES[draft.role].toLowerCase()+' pairs…';
    $('rankings').innerHTML='<div class="empty"><h3>Loading '+ROLE_NAMES[draft.role].toLowerCase()+' matchups…</h3></div>';
    const role=draft.role;
-   if(!roleRequests[role])roleRequests[role]=fetch(`data/draft/${role}.json`).then(r=>{if(!r.ok)throw Error('Matchup data could not be loaded.');return r.json();}).then(d=>{if(!d.profiles)throw Error('Incomplete matchup data.');profiles[role]=d.profiles;return d;}).catch(e=>{delete roleRequests[role];throw e;});
-   await roleRequests[role];
+   const datasetId=activeDataset.id;
+   const loaded=await datasets.role(datasetId,role);
+   if(current!==revision||activeDataset.id!==datasetId)return;
+   profiles[role]=loaded;
   }
   if(current!==revision)return;
   if(!blindByRole[draft.role]){
@@ -213,7 +217,7 @@ $('role-mover').addEventListener('cancel',()=>setTimeout(flushQueuedClient,0));
 const spreadPopup=$('blindability-popover');
 let spreadTrigger=null,spreadTimer,suppressedTrigger=null;
 retainPopupFocus(spreadPopup,()=>clearTimeout(spreadTimer));
-const graphCache={};
+let graphCache={};
 function hideSpread(){
  clearTimeout(spreadTimer);
  if(spreadTrigger)spreadTrigger.setAttribute('aria-expanded','false');
@@ -297,15 +301,45 @@ function acceptClientSnapshot(snapshot){
 function flushQueuedClient(){
  if(queuedClientSnapshot&&!dragPress&&!$('role-mover').open&&clientSyncing){const next=queuedClientSnapshot;queuedClientSnapshot=null;acceptClientSnapshot(next);}
 }
+async function loadDataset(id){
+ const request=++datasetRevision;++revision;datasetLoading=true;hideSpread();
+ $('dataset-select').disabled=true;
+ $('edit-pool').disabled=true;$('ranking-context').textContent='Loading dataset…';
+ try{
+  const next=await datasets.catalog(id);if(request!==datasetRevision)return;
+  const merged=new Map([...champions].map(([cid,c])=>[cid,{...c,roles:{}}]));
+  for(const c of next.champions)merged.set(c.id,c);
+  catalog=next;champions=merged;activeDataset=datasets.entry(id);profiles={};blindByRole={};graphCache={};ranking=null;datasetLoading=false;
+  $('dataset-select').value=id;
+  try{localStorage.setItem('draftlab-dataset-v1',id);}catch{}
+  const date=new Date(catalog.asOf).toLocaleDateString('en-US',{month:'short',day:'numeric',timeZone:'America/Los_Angeles'});
+  $('snapshot').textContent=`All ranks · ${activeDataset.kind==='combined'?activeDataset.label:'30-day history'} · ${date}`;
+  $('data-details').textContent=`Frozen LoLalytics global ranked solo/duo snapshot. ${activeDataset.kind==='combined'?catalog.patches.length+' discrete patches combined by pair game counts.':'Original 30-day snapshot preserved separately.'} ${catalog.champions.length} champions and ${Object.values(catalog.profileCounts).reduce((sum,n)=>sum+n,0)} champion-role profiles. Missing patch pairs are not invented. Component snapshots retain their source URLs and hashes.`;
+  const first=!loadDataset.initialized;
+  if(first){restore();try{pools=loadPools(localStorage,champions);}catch{}loadDataset.initialized=true;}
+  await update();
+  if(first)companion=connectCompanion(state=>{
+   clientSyncing=state.syncing;
+   if(!state.enabled){queuedClientSnapshot=null;clientHints={};clientOwnChampion=null;}
+   $('auto-roles').disabled=clientSyncing;
+  },acceptClientSnapshot);
+ }catch(error){
+  if(request!==datasetRevision)return;
+  datasetLoading=false;
+  if(activeDataset){$('dataset-select').value=activeDataset.id;await update();}
+  $('status').textContent=error.message;
+ }finally{if(request===datasetRevision)$('dataset-select').disabled=false;}
+}
+$('dataset-select').onchange=()=>loadDataset($('dataset-select').value);
 try{
- const response=await fetch('data/draft/catalog.json');if(!response.ok)throw Error('Champion data could not be loaded.');
- catalog=await response.json();champions=new Map(catalog.champions.map(c=>[c.id,c]));
- restore();try{pools=loadPools(localStorage,champions);}catch{}$('snapshot').textContent='All ranks · 30 days · '+new Date(catalog.asOf).toLocaleDateString('en-US',{month:'short',day:'numeric',timeZone:'America/Los_Angeles'});
- $('data-details').textContent=`Frozen LoLalytics global ranked solo/duo snapshot. ${catalog.champions.length} champions and ${Object.values(catalog.profileCounts).reduce((s,n)=>s+n,0)} champion-role profiles. Candidate roles have at least 1,000 games and 0.25% of the listed role pool, or are the champion's primary role. Each profile retains its source URLs and hashes.`;
- await update();
- companion=connectCompanion(state=>{
-  clientSyncing=state.syncing;
-  if(!state.enabled){queuedClientSnapshot=null;clientHints={};clientOwnChampion=null;}
-  $('auto-roles').disabled=clientSyncing;
- },acceptClientSnapshot);
+ const response=await fetch('data/datasets.json',{cache:'no-store'});if(!response.ok)throw Error('Dataset index could not be loaded.');
+ datasets=new DatasetStore(await response.json());
+ $('dataset-select').innerHTML=[...datasets.entries.values()].map(entry=>`<option value="${esc(entry.id)}">${esc(entry.label)}</option>`).join('');
+ $('dataset-select').disabled=false;
+ let datasetId=datasets.defaultId;try{const saved=localStorage.getItem('draftlab-dataset-v1');if(datasets.entries.has(saved))datasetId=saved;}catch{}
+ if(datasetId!==datasets.defaultId){
+  const latest=await datasets.catalog(datasets.defaultId);
+  champions=new Map(latest.champions.map(c=>[c.id,{...c,roles:{}}]));
+ }
+ await loadDataset(datasetId);
 }catch(e){$('status').textContent=e.message;}

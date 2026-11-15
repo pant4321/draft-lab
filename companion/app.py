@@ -19,7 +19,7 @@ if __package__ in (None, ""):
 from companion.lcu import Poller
 from companion.updates import UpdateChecker
 
-VERSION = "0.1.4"
+VERSION = "0.1.5"
 
 
 class State:

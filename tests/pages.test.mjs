@@ -12,9 +12,11 @@ test('entry script and stylesheet cache versions match their content for existin
   assert.ok(html.includes(`${attribute}="${file}?v=${version}"`),`Refresh the cache version after editing ${file}.`);
  }
  const entry=readFileSync(new URL('draft.mjs',root),'utf8');
- const blind=readFileSync(new URL('blindability.mjs',root),'utf8').replace(/\r\n/g,'\n');
- const blindVersion=createHash('sha256').update(blind).digest('hex').slice(0,12);
- assert.ok(entry.includes(`from './blindability.mjs?v=${blindVersion}'`),'Refresh the blindability import version when its formula changes.');
+ for(const file of ['blindability.mjs','datasets.mjs']){
+  const source=readFileSync(new URL(file,root),'utf8').replace(/\r\n/g,'\n');
+  const version=createHash('sha256').update(source).digest('hex').slice(0,12);
+  assert.ok(entry.includes(`from './${file}?v=${version}'`),`Refresh the ${file} import version when it changes.`);
+ }
 });
 
 test('entry assets, module imports and initial data work at the GitHub Pages project path',()=>{
@@ -40,6 +42,9 @@ test('entry assets, module imports and initial data work at the GitHub Pages pro
   for(const [,reference] of source.matchAll(/fetch\(['"]([^'"]+)['"]\)/g))resolveAsset(reference);
  }
  assert.ok(seen.has('matchup-spread.mjs'));
+ resolveAsset('data/datasets.json');
+ const index=JSON.parse(readFileSync(new URL('data/datasets.json',root),'utf8'));
+ for(const dataset of index.datasets)for(const file of Object.keys(dataset.files))resolveAsset(`${dataset.base}/${file}`);
  for(const role of ['top','jungle','middle','bottom','support'])resolveAsset(`data/draft/${role}.json`);
  const catalog=JSON.parse(readFileSync(new URL('data/draft/catalog.json',root),'utf8'));
  for(const champion of catalog.champions)resolveAsset(`assets/${champion.key}.png`);

@@ -35,6 +35,12 @@ def main():
                 assert b'Draft Lab' in response.read()
             with urlopen(origin + '/data/draft/catalog.json') as response:
                 assert len(json.load(response)['champions']) >= 173
+            with urlopen(origin + '/data/datasets.json') as response:
+                datasets=json.load(response)
+                assert datasets['default']=='combined'
+                history=next(entry for entry in datasets['datasets'] if entry['kind']=='historical')
+            with urlopen(origin + '/' + history['base'] + '/catalog.json') as response:
+                assert json.load(response)['window']=='30 days'
             with urlopen(Request(origin + '/api/state', headers=headers)) as response:
                 assert json.load(response)['companionVersion'] == VERSION
             try:

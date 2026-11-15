@@ -23,11 +23,17 @@ No build step, server, API key, or runtime data service is required. Site links,
 
 ## Dataset
 
-The frozen November 14, 2026 snapshot contains 173 champions, 263 champion-role profiles, and 405,150 role-specific pair cells. Profile counts: Top 57, Jungle 64, Mid 57, Bot 35, Support 50. Data uses global ranked solo/duo, all ranks, rolling 30 days. Icons and champion IDs come from Riot Data Dragon 16.22.1.
+The default dataset combines six discrete patches, **16.17–16.22**, captured November 15, 2026. It contains 173 champions, 265 eligible champion-role profiles, and 409,996 pair cells. Profile counts are Top 56, Jungle 64, Mid 57, Bot 38, Support 50. The original November 14 rolling 30-day snapshot is preserved byte-for-byte under `dist/data/history/30d-2026-11-14/` and remains available from the **Data** selector. It is never mixed into the patch aggregate because its games overlap those patches.
+
+Each patch is an immutable, checksum-verified snapshot in `dist/data/patches/<patch>/`. The six source snapshots retain 2,635 source-listed champion-role profiles, including low-volume off-role records that may become useful in later combined windows. Riot's matching patch roster is recorded for each capture. Patch 16.22 is frozen as of the collection date, not claimed to be a finalized full-patch sample. Completed snapshots are reused without fetching their old URLs again. Icons use the bundled champion assets.
+
+For each candidate, overall WR is weighted by its profile game counts across patches. For each matchup or synergy pair, sum its counts and average the published patch-local normalized Delta 2 and observed WR using that pair's own game count. Do not recompute normalized effects from pooled baselines or give patches equal weight. Opponent role pick shares are recomputed from summed role game counts. Missing pairs are not filled with neutral values. Rates are derived from published rounded aggregates, not downloaded match records or exact reconstructed win counts.
+
+The generated combined view lives in `dist/data/draft/`. `dist/data/datasets.json` lists the combined view and historical captures with file checksums. The app checks each requested file's SHA-256 before using it, caches profiles by dataset, and clears spread/score caches on cohort changes. The selected dataset, current draft, and role pools persist independently. An inconsistent or stale file is rejected rather than mixed into a different cohort.
 
 The collector reads LoLalytics' public champion build pages for enemy pairs and the same public team endpoint used by its Synergy tab for ally pairs. Every profile retains both source URLs, response hashes, and collection time. It uses published normalized Delta 2 values, rather than treating raw matchup win rates as counter or synergy strength. No Machine LoLing code, scores, data, or weights are used. The spread graph follows the user-supplied visual reference.
 
-Role tier lists identify candidate roles. A role profile needs at least 1,000 champion games and 0.25% of the listed role pool, or must be that champion's most-played role. All 173 champions have at least one supported role. Picks entered in either draft can use any champion; the assigned slot determines the role used for pair lookup.
+Role tier lists identify candidate roles. A combined role profile needs at least 1,000 champion games and either 0.25% of the combined listed role pool or that champion's primary role. All 173 champions have at least one supported role. Picks entered in either draft can use any champion; the assigned slot determines the role used for pair lookup.
 
 ## Windows companion
 
@@ -47,13 +53,29 @@ Enable `Auto roles` to estimate roles whenever picks change. The guesser tests e
 
 A `?` flags an unsupported role or another assignment within a factor of two of the best joint likelihood. A manual move pins that champion's role, marked `SET`; a manual swap pins both. Corrections follow champion IDs across role inference updates and remain until that champion leaves the draft, `Clear corrections` is used, or the draft is reset. Auto roles, draft state, and corrections persist in browser storage. Auto roles starts off for existing manual drafting. The Windows companion uses this same assignment module for live client snapshots.
 
-Recollect with Python and `beautifulsoup4`:
+## Update datasets
+
+Collection requires Python and `beautifulsoup4`. Collect only missing patches, then rebuild from all saved patch archives:
 
 ```
-python scripts/collect_draft.py --cache cache-draft-new
+python scripts/update_datasets.py --patches 16.17 16.18 16.19 16.20 16.21 16.22
 ```
 
-Each cache is a frozen collection attempt; use a fresh directory for a new window. Parsed profile caches make interrupted work resumable. Keep the collector's output complete and rerun tests before publishing. A failed profile makes collection exit unsuccessfully. Dataset files are split by candidate role and loaded on demand.
+When the next patch is available, append just that patch:
+
+```
+python scripts/update_datasets.py --patches 16.23
+```
+
+Already-complete patches are verified and skipped before any network request. Parsed per-profile caches make interrupted collection resumable. All source-listed role profiles are retained so future combinations can apply eligibility thresholds without revisiting old patches. Source build headers must match the requested patch, champion, role, and ranked queue; tier metadata must match patch, lane, rank, and region. Failed collection publishes no patch snapshot. A snapshot manifest is written only after all profiles complete, and its files are verified before reuse. Existing snapshots remain frozen, including the partial latest patch; later balance changes are not retroactively fetched into them.
+
+To rebuild entirely offline after adding a complete snapshot directory, run without patch arguments:
+
+```
+python scripts/update_datasets.py
+```
+
+This recomputes the combined view and dataset index while leaving every old patch and the historical 30-day capture unchanged. The combined view can be regenerated if damaged; corrupt source archives fail validation. No rolling-window data is added to the combined view. Patch balance changes remain part of this historical aggregate, so it is not presented as a current-patch-only forecast. Every patch profile retains source URLs, hashes, and collection time.
 
 ## Score
 
@@ -110,6 +132,8 @@ Graph spread is not used in the safety score. Group choices and graph data stay 
 
 ## Verification
 
+Dataset tests cover pair-specific game weighting, summed counts and role shares, no overlap with the 30-day archive, immutable snapshot checksums, idempotent offline rebuilding, append-only updates without network access to old patches, cohort-isolated browser caching, and rejection of stale or mixed files. Browser checks cover cohort switching, stored selection, unchanged drafts/pools, and cohort-specific spread graphs.
+
 Champion-pool tests cover stable group ordering for both scoring modes, unchanged scores and eligibility, role-specific persistence, reset independence, and malformed settings. Browser checks cover selecting/removing pool champions, switching roles, grouping, bans, reload persistence, and backdrop dismissal.
 
 Overlay regression tests cover graph-click focus retention, native selector/button behavior, backdrop dismissal, dialog padding, pointer cancellation, and drags across the dialog boundary. Browser checks cover repeated graph clicks, group selection, Escape, champion and ban backdrop dismissal, and keeping applied bans after dismissal.
@@ -120,7 +144,7 @@ Companion regression tests cover custom-game bots whose selected roster champion
 
 Default-list tests cover all five real role pools, descending blindability, alphabetical ties, unavailable scores, bans-only drafts, switching to unchanged draft-edge rankings when a pick arrives, and role-specific picker popularity. Browser checks cover default graphs, role changes, pick-triggered sorting, reset, bans, and picker sort labels.
 
-`npm test` covers the exact two-ally/three-enemy jungle example, scoring across enemy roles, synergy-driven changes in the best pick, duplicate and ban handling, missing data, empty drafts, sample adjustment, optional strength, all 405,150 pair cells, candidate coverage for all 173 champions, and a real five-pair draft in every role.
+`npm test` covers the exact two-ally/three-enemy jungle example, scoring across enemy roles, synergy-driven changes in the best pick, duplicate and ban handling, missing data, empty drafts, sample adjustment, optional strength, all combined pair cells, candidate coverage for all 173 champions, and a real five-pair draft in every role.
 
 Browser checks exercise manual picks, exclusion rules, bans, role changes, search, contribution breakdowns, and draft reset. Role-assignment tests cover joint flex-pick inference, later arrivals, ties, uncertain assignments, own-role exclusion, stale corrections, swaps, and scoring against corrected roles. Browser checks cover a native drag to an empty role, swaps via the move button, corrections surviving new picks and reloads, clearing corrections, and the mobile move dialog. Blindability checks cover exact pick-share multipliers, rare versus common counters, sample shrinkage, positive-side/ally/base-WR invariance, summed role downside, percentiles and ties, missing enemy data, graph variance correction, and exact draft-score/ranking invariance. Spread popup browser checks cover tap, keyboard focus, Escape, close, champion selection, matchup group changes, unchanged draft edge, and viewport containment at desktop and 390px width. Draft state stays in browser local storage. Reset clears picks, bans and manual role corrections; the chosen role, auto-role setting and optional score mode remain selected.
 

@@ -3,6 +3,8 @@ from pathlib import Path
 import struct
 import subprocess
 import sys
+import shutil
+import tempfile
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -23,15 +25,23 @@ def make_icon(path):
 def main():
     subprocess.run(['node', '--test', *map(str, sorted((ROOT / 'tests').glob('*.test.mjs')))], cwd=ROOT, check=True)
     subprocess.run([sys.executable, '-m', 'unittest', 'discover', '-s', 'companion/tests'], cwd=ROOT, check=True)
+    subprocess.run([sys.executable, '-m', 'unittest', 'discover', '-s', 'tests/python'], cwd=ROOT, check=True)
     icon = ROOT / 'companion/assets/draftlab.ico'
     make_icon(icon)
-    subprocess.run([sys.executable, '-m', 'PyInstaller', '--noconfirm', '--onefile', '--windowed', '--noupx',
-                    '--name', 'DraftLab', '--distpath', str(ROOT / 'build/companion-release'),
-                    '--workpath', str(ROOT / 'build/pyinstaller'), '--specpath', str(ROOT / 'build'),
-                    '--paths', str(ROOT), '--icon', str(icon),
-                    '--add-data', str(ROOT / 'dist') + ':web',
-                    '--add-data', str(ROOT / 'companion/assets') + ':companion/assets',
-                    str(ROOT / 'companion/app.py')], cwd=ROOT, check=True)
+    (ROOT/'build').mkdir(exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix='companion-web-',dir=ROOT/'build') as directory:
+        stage=Path(directory).resolve()
+        if not stage.is_relative_to((ROOT/'build').resolve()):
+            raise ValueError('Web staging directory must remain inside build/.')
+        # The app uses the combined/history views. Source patch archives remain in the repo.
+        shutil.copytree(ROOT/'dist',stage/'web',ignore=lambda folder,names:['patches'] if Path(folder)==ROOT/'dist/data' else [])
+        subprocess.run([sys.executable, '-m', 'PyInstaller', '--noconfirm', '--onefile', '--windowed', '--noupx',
+                        '--name', 'DraftLab', '--distpath', str(ROOT / 'build/companion-release'),
+                        '--workpath', str(ROOT / 'build/pyinstaller'), '--specpath', str(ROOT / 'build'),
+                        '--paths', str(ROOT), '--icon', str(icon),
+                        '--add-data', str(stage/'web') + ':web',
+                        '--add-data', str(ROOT / 'companion/assets') + ':companion/assets',
+                        str(ROOT / 'companion/app.py')], cwd=ROOT, check=True)
     print(ROOT / 'build/companion-release/DraftLab.exe')
 
 
