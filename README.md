@@ -4,8 +4,6 @@ A role-aware League of Legends pick recommender. Enter revealed allied and enemy
 
 [Open Draft Lab](https://pant4321.github.io/draft-lab/)
 
-The Qiyana test page and preset draft button have been removed from the app. Historical research notes remain in `docs/qiyana-spread.md`.
-
 ## Run
 
 Requires Node and Python; no JavaScript dependency installation or build step.
@@ -122,7 +120,7 @@ Companion regression tests cover custom-game bots whose selected roster champion
 
 Default-list tests cover all five real role pools, descending blindability, alphabetical ties, unavailable scores, bans-only drafts, switching to unchanged draft-edge rankings when a pick arrives, and role-specific picker popularity. Browser checks cover default graphs, role changes, pick-triggered sorting, reset, bans, and picker sort labels.
 
-`npm test` covers the exact two-ally/three-enemy jungle example, scoring across enemy roles, synergy-driven changes in the best pick, duplicate and ban handling, missing data, empty drafts, sample adjustment, optional strength, all 405,150 pair cells, candidate coverage for all 173 champions, and a real five-pair draft in every role. Qiyana calculation tests remain separately available.
+`npm test` covers the exact two-ally/three-enemy jungle example, scoring across enemy roles, synergy-driven changes in the best pick, duplicate and ban handling, missing data, empty drafts, sample adjustment, optional strength, all 405,150 pair cells, candidate coverage for all 173 champions, and a real five-pair draft in every role.
 
 Browser checks exercise manual picks, exclusion rules, bans, role changes, search, contribution breakdowns, and draft reset. Role-assignment tests cover joint flex-pick inference, later arrivals, ties, uncertain assignments, own-role exclusion, stale corrections, swaps, and scoring against corrected roles. Browser checks cover a native drag to an empty role, swaps via the move button, corrections surviving new picks and reloads, clearing corrections, and the mobile move dialog. Blindability checks cover exact pick-share multipliers, rare versus common counters, sample shrinkage, positive-side/ally/base-WR invariance, summed role downside, percentiles and ties, missing enemy data, graph variance correction, and exact draft-score/ranking invariance. Spread popup browser checks cover tap, keyboard focus, Escape, close, champion selection, matchup group changes, unchanged draft edge, and viewport containment at desktop and 390px width. Draft state stays in browser local storage. Reset clears picks, bans and manual role corrections; the chosen role, auto-role setting and optional score mode remain selected.
 
