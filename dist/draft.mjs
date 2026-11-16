@@ -140,10 +140,10 @@ function renderPicker(){
  });
 }
 function renderSettings(){
- $('weight-rows').innerHTML=ROLES.map(role=>`<tr><th scope="row">${ROLE_NAMES[role]}</th>${['allies','enemies'].map(side=>`<td><label class="weight-input"><input type="number" min="0" max="5" step="any" required value="${multipliers[side][role]}" data-weight-side="${side}" data-weight-role="${role}" aria-label="${ROLE_NAMES[role]} ${side==='allies'?'synergy':'counter'} multiplier"><span aria-hidden="true">×</span></label></td>`).join('')}</tr>`).join('');
+ $('weight-rows').innerHTML=ROLES.map(role=>`<tr><th scope="row">${ROLE_NAMES[role]}</th>${['allies','enemies'].map(side=>`<td><label class="weight-input"><input type="number" min="0" max="5" step="0.1" required value="${multipliers[side][role]}" data-weight-side="${side}" data-weight-role="${role}" aria-label="${ROLE_NAMES[role]} ${side==='allies'?'synergy':'counter'} multiplier"><span aria-hidden="true">×</span></label></td>`).join('')}</tr>`).join('');
  $('weights-error').textContent='';
  document.querySelectorAll('[data-weight-side]').forEach(input=>input.oninput=()=>{
-  if(!input.checkValidity()){$('weights-error').textContent='Use a number from 0 to 5.';return;}
+  if(!input.checkValidity()){$('weights-error').textContent='Use a number from 0 to 5 in steps of 0.1.';return;}
   $('weights-error').textContent='';multipliers[input.dataset.weightSide][input.dataset.weightRole]=Number(input.value);
   try{saveMultipliers(localStorage,multipliers);}catch{}update();
  });
