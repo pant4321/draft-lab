@@ -18,9 +18,9 @@ Published v0.1.3 and earlier executables do not include this check. Download v0.
 
 **Your pool** saves champions separately for each role, then shows them ahead of other recommendations with the existing blindability or draft-edge ordering preserved within each section. Pools are saved in browser-local storage and survive draft resets. They do not change scores or override bans, taken picks, or data requirements.
 
-## Data views
+## Saved datasets
 
-The live site defaults to combined patches 16.17–16.22, captured November 15, 2026. The **Data** selector also offers the original November 14 30-day history. Switching datasets keeps the current draft and role pools. The website loads and verifies both views against saved SHA-256 hashes. Discrete source patch archives stay in the repository for offline recombination and future append-only collection. Version 0.1.5 bundled these views; version 0.1.6 contains no website or dataset files.
+The live site defaults to combined patches 16.17–16.22, captured November 15, 2026. The app uses the combined view with no data selector. The original November 14 30-day snapshot stays archived separately. The website verifies requested combined files against saved SHA-256 hashes. Discrete source patch archives stay in the repository for offline recombination and future append-only collection. Version 0.1.5 bundled these views; version 0.1.6 contains no website or dataset files.
 
 ## Sync behavior
 

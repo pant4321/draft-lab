@@ -328,15 +328,12 @@ function flushQueuedClient(){
 }
 async function loadDataset(id){
  const request=++datasetRevision;++revision;datasetLoading=true;hideSpread();
- $('dataset-select').disabled=true;
  $('edit-pool').disabled=true;$('ranking-context').textContent='Loading dataset…';
  try{
   const next=await datasets.catalog(id);if(request!==datasetRevision)return;
   const merged=new Map([...champions].map(([cid,c])=>[cid,{...c,roles:{}}]));
   for(const c of next.champions)merged.set(c.id,c);
   catalog=next;champions=merged;activeDataset=datasets.entry(id);profiles={};blindByRole={};graphCache={};ranking=null;datasetLoading=false;
-  $('dataset-select').value=id;
-  try{localStorage.setItem('draftlab-dataset-v1',id);}catch{}
   const date=new Date(catalog.asOf).toLocaleDateString('en-US',{month:'short',day:'numeric',timeZone:'America/Los_Angeles'});
   $('snapshot').textContent=`All ranks · ${activeDataset.kind==='combined'?activeDataset.label:'30-day history'} · ${date}`;
   $('data-details').textContent=`Frozen LoLalytics global ranked solo/duo snapshot. ${activeDataset.kind==='combined'?catalog.patches.length+' discrete patches combined by pair game counts.':'Original 30-day snapshot preserved separately.'} ${catalog.champions.length} champions and ${Object.values(catalog.profileCounts).reduce((sum,n)=>sum+n,0)} champion-role profiles. Missing patch pairs are not invented. Component snapshots retain their source URLs and hashes.`;
@@ -351,20 +348,12 @@ async function loadDataset(id){
  }catch(error){
   if(request!==datasetRevision)return;
   datasetLoading=false;
-  if(activeDataset){$('dataset-select').value=activeDataset.id;await update();}
+  if(activeDataset)await update();
   $('status').textContent=error.message;
- }finally{if(request===datasetRevision)$('dataset-select').disabled=false;}
+ }
 }
-$('dataset-select').onchange=()=>loadDataset($('dataset-select').value);
 try{
  const response=await fetch('data/datasets.json',{cache:'no-store'});if(!response.ok)throw Error('Dataset index could not be loaded.');
  datasets=new DatasetStore(await response.json());
- $('dataset-select').innerHTML=[...datasets.entries.values()].map(entry=>`<option value="${esc(entry.id)}">${esc(entry.label)}</option>`).join('');
- $('dataset-select').disabled=false;
- let datasetId=datasets.defaultId;try{const saved=localStorage.getItem('draftlab-dataset-v1');if(datasets.entries.has(saved))datasetId=saved;}catch{}
- if(datasetId!==datasets.defaultId){
-  const latest=await datasets.catalog(datasets.defaultId);
-  champions=new Map(latest.champions.map(c=>[c.id,{...c,roles:{}}]));
- }
- await loadDataset(datasetId);
+ await loadDataset(datasets.defaultId);
 }catch(e){$('status').textContent=e.message;}
