@@ -33,6 +33,7 @@ Version 0.1.3 changes blindability to counterpick safety only: negative enemy de
 - Use the local player's assigned role when available. Enemy roles are inferred from the website's saved role counts, not hidden opponent information.
 - Use teammate assigned positions as hints. Manual moves and swaps override those hints.
 - Recompute recommendations when picks, bans, or roles change. Defer updates while a card is being dragged or its move dialog is open.
+- Draft settings can apply separate synergy/counter multipliers to each assigned role. Live imports preserve these preferences and use them when reranking. Editing multipliers does not pause live sync or affect blindability.
 - Preserve corrections by champion ID within a draft. Clear them for a new champion-select session.
 - Pause `Live sync` for manual drafting. Resume to import the latest client state. Manually adding/removing picks or bans while synced also pauses importing.
 - Display your own locked champion in your reserved slot. It is excluded from ally pair inputs.

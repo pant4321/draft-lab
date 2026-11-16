@@ -1,5 +1,5 @@
-import {ROLES,ROLE_NAMES,emptyDraft,validateDraft} from './draft-math.mjs';
-import {recommendationList,sortPickerChampions} from './draft-list.mjs';
+import {ROLES,ROLE_NAMES,emptyDraft,validateDraft} from './draft-math.mjs?v=83c2e3d1ba0f';
+import {recommendationList,sortPickerChampions} from './draft-list.mjs?v=08ffed6cfc9a';
 import {roleBlindability} from './blindability.mjs?v=92f60cfcce68';
 import {inferDraftRoles,moveDraftChampion,cleanRoleOverrides} from './draft-roles.mjs';
 import {mergeClientSnapshot,combineRoleHints} from './draft-sync.mjs';
@@ -10,6 +10,7 @@ import {matchupSpreadGraph} from './matchup-spread.mjs';
 import {retainPopupFocus,dismissOnBackdrop} from './overlays.mjs';
 import {emptyPools,loadPools,savePools,poolSections,prioritizePool} from './champion-pool.mjs';
 import {DatasetStore} from './datasets.mjs?v=b605a99aaef9';
+import {defaultMultipliers,loadMultipliers,saveMultipliers,customMultipliers} from './draft-weights.mjs?v=0465e432aded';
 const $=id=>document.getElementById(id),esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const signed=v=>(v>0?'+':'')+v.toFixed(2),tone=v=>v>.005?'positive':v<-.005?'negative':'zero';
 const norm=s=>s.toLowerCase().replace(/[^a-z0-9]/g,''),num=n=>n.toLocaleString('en-US');
@@ -22,6 +23,7 @@ let companion=null,clientSyncing=false,clientHints={},clientOwnChampion=null,cli
 let pools=emptyPools(),poolRole=null;
 let datasets,activeDataset=null,datasetLoading=true,datasetRevision=0;
 let blindByRole={};
+let multipliers=defaultMultipliers();try{multipliers=loadMultipliers(localStorage);}catch{}
 function champion(id){return champions.get(Number(id));}
 function blindInfo(id){return blindByRole[draft.role]?.[id];}
 function blindTitle(id){const b=blindInfo(id);return b?.score!=null?`Counterpick safety: ${b.score}/100 among ${b.comparedWith} ${ROLE_NAMES[draft.role].toLowerCase()} picks. ${b.counterLoss.toFixed(2)} pp weighted downside across five enemy roles. Negative matchup deltas are sample-adjusted and multiplied by opponent role pick-rate share. Rare picks count less. Base WR, positive bonuses, and ally synergy do not affect this score. Independent of draft edge.`:(b?.reason??'Not enough comparable role data.');}
@@ -54,6 +56,7 @@ function renderBoard(){
  $('include-strength').checked=includeStrength;
  $('edit-pool').textContent='Your pool'+(pools[draft.role].length?' · '+pools[draft.role].length:'');
  $('edit-pool').disabled=!profiles[draft.role];
+ $('draft-settings').textContent=customMultipliers(multipliers)?'Settings · custom':'Settings';
  $('ban-chips').innerHTML=draft.bans.map(id=>`<button class="ban-chip" data-unban="${id}" aria-label="Unban ${esc(champion(id).name)}">${img(id,'')}<span>${esc(champion(id).name)} ×</span></button>`).join('');
  document.querySelectorAll('[data-unban]').forEach(b=>b.onclick=()=>{pauseForManualEdit();draft.bans=draft.bans.filter(id=>id!==+b.dataset.unban);update();});
 }
@@ -63,7 +66,7 @@ function renderRanking(){
  const blind=ranking.mode==='blindability';
  const allied=Object.values(draft.allies).filter(x=>x!=null).length,enemy=Object.values(draft.enemies).filter(x=>x!=null).length;
  $('ranking-title').textContent=blind?`Blind picks for ${ROLE_NAMES[draft.role]}`:'Best picks for this draft';
- $('ranking-context').textContent=blind?'Sorted by blindability':`${ROLE_NAMES[draft.role]} · ${allied} ${allied===1?'ally':'allies'} · ${enemy} ${enemy===1?'enemy':'enemies'} · Sorted by draft edge`;
+ $('ranking-context').textContent=blind?'Sorted by blindability':`${ROLE_NAMES[draft.role]} · ${allied} ${allied===1?'ally':'allies'} · ${enemy} ${enemy===1?'enemy':'enemies'} · Sorted by draft edge${customMultipliers(multipliers)?' · Custom weights':''}`;
  $('score-label').hidden=blind;$('include-strength').disabled=blind;
  const query=norm($('candidate-search').value);
  const sections=poolSections(ranking.ranked,pools[draft.role]).map(section=>({...section,rows:section.rows
@@ -74,7 +77,8 @@ function renderRanking(){
   const heading=section.title?`<h2 class="ranking-group">${section.title} <span>${section.rows.length}</span></h2>`:'';
   return heading+section.rows.map(row=>`<div class="pick ${row.id===selected?'selected':''}" data-pool-group="${section.key}"><button class="pick-inspect" data-candidate="${row.id}" aria-label="Inspect ${esc(champion(row.id).name)}, rank ${row.index}${section.title?' in '+section.title.toLowerCase():''}${blind?'':', draft edge '+signed(row.score)}"></button><span class="pick-lead"><span class="pick-rank">${row.index}</span>${img(row.id)}<span class="pick-name">${esc(champion(row.id).name)}<small>${(100*row.wr).toFixed(1)}% WR${row.smallSample?' · small samples':''}</small></span></span><span class="pick-pair ${blind?'zero':tone(row.counter)}">${blind?'—':signed(row.counter)}</span><span class="pick-pair ${blind?'zero':tone(row.synergy)}">${blind?'—':signed(row.synergy)}</span>${blindCell(row.id)}<span class="pick-total ${blind?'zero':tone(row.score)}">${blind?'—':signed(row.score)}</span></div>`).join('');
  }).join('')+(!hasRows?'<div class="empty"><h3>No matching recommendations.</h3><p>Clear your search or change the draft.</p></div>':'');
- $('ranking-footer').textContent=blind?`${ranking.ranked.length} champions · Highest blindability first`:`${ranking.ranked.length} ranked · ${ranking.shown}/${ranking.shown} revealed pairs covered`+(ranking.insufficient.length?` · ${ranking.insufficient.length} unranked for missing data`:'');
+ const active=ranking.shown-ranking.ignored;
+ $('ranking-footer').textContent=blind?`${ranking.ranked.length} champions · Highest blindability first`:`${ranking.ranked.length} ranked · ${active}/${active} ${ranking.ignored?'active':'revealed'} pairs covered${ranking.ignored?' · '+ranking.ignored+' ignored':''}`+(ranking.insufficient.length?` · ${ranking.insufficient.length} unranked for missing data`:'');
  document.querySelectorAll('[data-candidate]').forEach(b=>b.onclick=()=>{selected=+b.dataset.candidate;renderRanking();renderBoard();renderBreakdown();});
 }
 function renderBreakdown(){
@@ -86,7 +90,7 @@ function renderBreakdown(){
   $('breakdown').innerHTML=`<div class="breakdown-head"><div><h2>${esc(c.name)}</h2><p>${(100*row.wr).toFixed(1)}% WR · ${info?.counterLoss!=null?info.counterLoss.toFixed(2)+' pp weighted downside':'Downside unavailable'}</p></div><span class="blind-detail">Blindability ${blindCell(row.id)}</span></div>`;
   return;
  }
- const cards=row.pairs.map(p=>`<article class="pair-card ${p.kind}"><div class="pair-title">${img(p.id,'')}<span><small>${p.kind==='enemy'?'VS':'WITH'} · ${ROLE_NAMES[p.role].toUpperCase()}</small>${esc(champion(p.id)?.name??p.id)}</span></div><div class="pair-value ${tone(p.adjusted)}">${signed(p.adjusted)}</div><p>${signed(p.raw)} pp raw · ${num(p.games)} games</p></article>`).join('');
+ const cards=row.pairs.map(p=>`<article class="pair-card ${p.kind}"><div class="pair-title">${img(p.id,'')}<span><small>${p.kind==='enemy'?'VS':'WITH'} · ${ROLE_NAMES[p.role].toUpperCase()}</small>${esc(champion(p.id)?.name??p.id)}</span></div><div class="pair-value ${tone(p.weighted)}">${signed(p.weighted)}</div><p>${p.multiplier!==1?(p.multiplier===0?'Ignored · 0×':signed(p.adjusted)+' pp adjusted × '+p.multiplier)+'<br>':''}${p.raw==null?'No saved matchup':signed(p.raw)+' pp raw · '+num(p.games)+' games'}</p></article>`).join('');
  const base=includeStrength?`<article class="pair-card"><div class="pair-title">${img(row.id,'')}<span><small>BASE STRENGTH</small>${esc(c.name)}</span></div><div class="pair-value ${tone(row.base)}">${signed(row.base)}</div><p>${(row.wr*100).toFixed(2)}% overall WR vs 50%</p></article>`:'';
  $('breakdown').innerHTML=`<div class="breakdown-head"><div><h2>Why ${esc(c.name)}?</h2><p>Contribution from each revealed pick · sample-adjusted pp</p></div><div class="breakdown-numbers"><span class="blind-detail">Blindability ${blindCell(row.id)}</span><span class="breakdown-total ${tone(row.score)}">${signed(row.score)}</span></div></div><div class="pair-grid">${cards}${base}</div>`;
 }
@@ -111,7 +115,7 @@ async function update(){
   if(!blindByRole[draft.role]){
    blindByRole[draft.role]=roleBlindability(profiles[draft.role],catalog.champions);
   }
-  ranking=recommendationList(draft,profiles[draft.role],blindByRole[draft.role],champions,{includeStrength});
+  ranking=recommendationList(draft,profiles[draft.role],blindByRole[draft.role],champions,{includeStrength,multipliers});
   ranking={...ranking,ranked:prioritizePool(ranking.ranked,pools[draft.role])};
   if(!ranking.ranked.some(x=>x.id===selected))selected=ranking.mode==='blindability'?null:ranking.ranked[0]?.id??null;
   renderRanking();renderBoard();renderBreakdown();
@@ -135,6 +139,23 @@ function renderPicker(){
   else{delete roleOverrides[picker.side][draft[picker.side][picker.role]];draft[picker.side][picker.role]=id;$('champion-picker').close();picker=null;update();}
  });
 }
+function renderSettings(){
+ $('weight-rows').innerHTML=ROLES.map(role=>`<tr><th scope="row">${ROLE_NAMES[role]}</th>${['allies','enemies'].map(side=>`<td><label class="weight-input"><input type="number" min="0" max="5" step="any" required value="${multipliers[side][role]}" data-weight-side="${side}" data-weight-role="${role}" aria-label="${ROLE_NAMES[role]} ${side==='allies'?'synergy':'counter'} multiplier"><span aria-hidden="true">×</span></label></td>`).join('')}</tr>`).join('');
+ $('weights-error').textContent='';
+ document.querySelectorAll('[data-weight-side]').forEach(input=>input.oninput=()=>{
+  if(!input.checkValidity()){$('weights-error').textContent='Use a number from 0 to 5.';return;}
+  $('weights-error').textContent='';multipliers[input.dataset.weightSide][input.dataset.weightRole]=Number(input.value);
+  try{saveMultipliers(localStorage,multipliers);}catch{}update();
+ });
+}
+$('draft-settings').onclick=()=>{hideSpread();renderSettings();$('draft-settings-dialog').showModal();};
+$('close-settings').onclick=()=>$('draft-settings-dialog').close();
+$('settings-done').onclick=()=>{
+ const invalid=[...document.querySelectorAll('[data-weight-side]')].find(input=>!input.checkValidity());
+ if(invalid){invalid.reportValidity();return;}$('draft-settings-dialog').close();
+};
+$('reset-weights').onclick=()=>{multipliers=defaultMultipliers();try{saveMultipliers(localStorage,multipliers);}catch{}renderSettings();update();};
+dismissOnBackdrop($('draft-settings-dialog'),()=>$('draft-settings-dialog').close());
 function persistPools(){try{savePools(localStorage,pools);}catch{}}
 function openPool(){
  if(!profiles[draft.role])return;

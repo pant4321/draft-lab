@@ -91,10 +91,15 @@ For each pair:
 
 ```
 adjusted effect = published normalized delta in pp * n / (n + 1000)
-draft edge = sum(adjusted enemy effects) + sum(adjusted ally effects)
+weighted effect = adjusted effect * the multiplier for that side and role
+draft edge = sum(weighted enemy effects) + sum(weighted ally effects)
 ```
 
 The 1,000-game setting is a fixed conservative shrinkage choice, not a fitted or calibrated parameter. It reduces the influence of noisy small samples. Both raw values and pair game counts remain visible in the contribution breakdown.
+
+**Settings** opens a compact role-multiplier table with separate **Synergy / Your team** and **Counters / Enemy team** columns for Top, Jungle, Mid, Bot, and Support. Values range from 0 to 5 and default to 1. Changes save and rerank immediately. They apply to the champion's assigned draft position, including manual corrections and live imports. Empty slots and your own recommendation slot add nothing. A 2× setting doubles that role's positive or negative contribution; 0× explicitly ignores the slot and removes its data-coverage requirement. Other revealed pairs still require saved data. The footer reports ignored slots separately, and each breakdown card shows the weighted contribution and any non-default multiplier.
+
+Multipliers are local preferences shared across your selected roles and datasets. They are stored under `draftlab-role-multipliers-v1`, independently of the draft and champion pools. Reset draft and live-client updates preserve them; **Reset multipliers** restores all ten values to 1. Invalid or malformed saved values fall back to 1 per field. Custom settings are marked beside Settings and in the draft ranking context. Multipliers do not alter blindability, spread graphs, source stats, role inference, or the optional base-WR contribution. These are personal ranking preferences, not fitted role coefficients.
 
 Default ranking uses draft fit only. `Include base WR` adds `100 * (candidate overall WR - 0.5)`. This switch ranks by base strength plus fit and remains optional because overall win rates include player and draft selection effects.
 
@@ -110,7 +115,7 @@ Recommendations put **Your pool** first, followed by **Other champions**. Each s
 
 Clicking the shaded backdrop dismisses the champion/ban picker just like its close button or Escape. Clicking content or dialog padding, or dragging from inside to outside, keeps it open. Clicking the spread graph retains focus inside its popup; its selector and close button keep their normal behavior.
 
-The result is an additive draft score expressed in adjusted percentage-point contributions. It is not a predicted game win probability or a validated causal gain from selecting the champion. Pair samples overlap, pair effects can interact, and summing them can double-count correlated information. No extra arbitrary role multiplier is applied; each revealed role enters through its own pair effect. Unknown future picks are not imputed or penalized. The optional base term and fixed shrinkage both need held-out validation before presenting calibrated match odds.
+The result is an additive draft score expressed in adjusted percentage-point contributions. It is not a predicted game win probability or a validated causal gain from selecting the champion. Pair samples overlap, pair effects can interact, and summing them can double-count correlated information. Each revealed role enters through its own pair effect and its user-selected multiplier, which defaults to 1. Unknown future picks are not imputed or penalized. The optional base term and fixed shrinkage both need held-out validation before presenting calibrated match odds.
 
 ## Counterpick-safety blindability
 
@@ -137,6 +142,8 @@ Portraits sit at their exact published normalized deltas and stack vertically. T
 Graph spread is not used in the safety score. Group choices and graph data stay in browser memory without new stats requests. This visual uses our frozen snapshot and estimator and does not claim to reproduce the reference's numbers. Move away, click outside, close, or press Escape to dismiss.
 
 ## Verification
+
+Multiplier tests cover independent ally/enemy weights, fractional and zero values, negative effects, exact default-score/ranking preservation, role changes, ignored missing data, unchanged bans and base strength, blind-list invariance, no source mutation, settings validation, independent persistence, and reset behavior. Browser checks cover live reranking, weighted breakdowns, reload persistence, invalid inputs, reset independence, and settings dismissal.
 
 Live-site connection tests cover fragment cleanup, reload persistence, strict loopback endpoints, permission gating and denial, no parallel polling, pause/resume, failed and successful quit, exact-origin CORS, token rejection, and blocking non-loopback binds. The frozen executable smoke test checks its live launch URL, CORS, authenticated state, and shutdown. Analytics tests check sanitized page fields, localhost exclusion, one-time asynchronous initialization, privacy signals, and token removal before tag startup.
 
