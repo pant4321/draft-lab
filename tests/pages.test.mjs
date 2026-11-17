@@ -12,7 +12,7 @@ test('entry script and stylesheet cache versions match their content for existin
   assert.ok(html.includes(`${attribute}="${file}?v=${version}"`),`Refresh the cache version after editing ${file}.`);
  }
  const entry=readFileSync(new URL('draft.mjs',root),'utf8');
- for(const file of ['blindability.mjs','datasets.mjs','companion.mjs','companion-session.mjs','analytics.mjs','draft-math.mjs','draft-list.mjs','draft-weights.mjs','team-edge.mjs','draft-roles.mjs']){
+ for(const file of ['blindability.mjs','datasets.mjs','companion.mjs','companion-session.mjs','analytics.mjs','draft-math.mjs','draft-list.mjs','draft-weights.mjs','team-edge.mjs','draft-roles.mjs','draft-breakdown.mjs']){
   const source=readFileSync(new URL(file,root),'utf8').replace(/\r\n/g,'\n');
   const version=createHash('sha256').update(source).digest('hex').slice(0,12);
   assert.ok(entry.includes(`from './${file}?v=${version}'`),`Refresh the ${file} import version when it changes.`);

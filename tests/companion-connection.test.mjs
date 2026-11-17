@@ -31,7 +31,7 @@ test('invalid launch cannot reuse a previous token; session storage failure stil
  assert.equal(prepareCompanionSession(blocked).port,8767);assert.equal(blocked.location.href,live);
 });
 function fixture(permissionState='prompt'){
- const elements=Object.fromEntries(['companion-bar','companion-status','live-sync','connect-companion','quit-companion','companion-connect','connection-connect','connection-help','connection-progress','connection-close','connection-later'].map(id=>[id,{hidden:false,disabled:false,checked:false,open:false,addEventListener(){},showModal(){this.open=true;},close(){this.open=false;}}]));
+ const elements=Object.fromEntries(['companion-bar','companion-status','live-sync','connect-companion','quit-companion','companion-connect','connection-connect','connection-help','connection-progress','connection-close','connection-later','companion-details','companion-chip-label','pause-companion','companion-menu-toggle'].map(id=>[id,{hidden:false,disabled:false,checked:false,open:false,dataset:{},attributes:{},setAttribute(name,value){this.attributes[name]=value;},addEventListener(){},showModal(){this.open=true;},close(){this.open=false;},focus(){}}]));
  const requests=[],timers=new Map(),states=[],snapshots=[];let nextTimer=0;
  const permission={state:permissionState,addEventListener(_name,callback){this.change=callback;}};
  const environment={document:{getElementById:id=>elements[id]},navigator:{permissions:{async query({name}){assert.equal(name,'loopback-network');return permission;}}},
@@ -55,6 +55,37 @@ test('first permission request waits for a click, then syncs directly to authent
  assert.equal(f.elements['companion-connect'].open,false);
  f.connection.pause();assert.equal(f.states.at(-1).syncing,false);
  f.connection.resume();assert.equal(f.states.at(-1).syncing,true);assert.equal(f.snapshots.length,2);
+});
+
+test('compact status and one-click pause follow actual connection state without extra requests',async()=>{
+ const f=fixture();await settle();
+ assert.equal(f.elements['companion-chip-label'].textContent,'League · Connect');
+ assert.equal(f.elements['pause-companion'].disabled,true);
+ await f.elements['connection-connect'].onclick();
+ assert.equal(f.elements['companion-chip-label'].textContent,'League · Live');
+ assert.equal(f.elements['pause-companion'].attributes['aria-label'],'Pause live sync');
+ f.elements['pause-companion'].onclick();
+ assert.equal(f.elements['companion-chip-label'].textContent,'League · Paused');
+ assert.equal(f.states.at(-1).syncing,false);
+ assert.equal(f.elements['pause-companion'].attributes['aria-label'],'Resume live sync');
+ f.elements['pause-companion'].onclick();
+ assert.equal(f.states.at(-1).syncing,true);assert.equal(f.requests.length,1);
+ f.environment.fetch=async()=>({ok:false,status:403});
+ await f.elements['connection-connect'].onclick();
+ assert.equal(f.elements['companion-chip-label'].textContent,'League · Expired');
+ assert.equal(f.elements['pause-companion'].disabled,true);
+});
+
+test('opening connection setup and successful shutdown close the status dropdown',async()=>{
+ const f=fixture();await settle();
+ f.elements['companion-details'].open=true;f.elements['connect-companion'].onclick();
+ assert.equal(f.elements['companion-details'].open,false);
+ await f.elements['connection-connect'].onclick();
+ f.elements['companion-details'].open=true;
+ f.environment.fetch=async()=>({ok:true});await f.elements['quit-companion'].onclick();
+ assert.equal(f.elements['companion-details'].open,false);
+ assert.equal(f.elements['companion-chip-label'].textContent,'League · Closed');
+ assert.equal(f.elements['pause-companion'].disabled,true);
 });
 test('granted access reconnects automatically; repeated clicks never start parallel polling',async()=>{
  const f=fixture('granted');await settle();assert.equal(f.requests.length,1);

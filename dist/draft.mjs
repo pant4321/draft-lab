@@ -3,7 +3,7 @@ import {recommendationList,sortPickerChampions} from './draft-list.mjs?v=08ffed6
 import {roleBlindability} from './blindability.mjs?v=92f60cfcce68';
 import {inferDraftRoles,moveDraftChampion,cleanRoleOverrides,selectDraftRole} from './draft-roles.mjs?v=ae75d9f318bc';
 import {mergeClientSnapshot,combineRoleHints} from './draft-sync.mjs';
-import {connectCompanion} from './companion.mjs?v=dccb644181f1';
+import {connectCompanion} from './companion.mjs?v=74107b178c02';
 import {prepareCompanionSession} from './companion-session.mjs?v=68364641f994';
 import {startAnalytics} from './analytics.mjs?v=9d2db4435dc3';
 import {matchupSpreadGraph} from './matchup-spread.mjs';
@@ -12,6 +12,7 @@ import {emptyPools,loadPools,savePools,poolSections,prioritizePool} from './cham
 import {DatasetStore} from './datasets.mjs?v=b605a99aaef9';
 import {defaultMultipliers,loadMultipliers,saveMultipliers,customMultipliers} from './draft-weights.mjs?v=0465e432aded';
 import {scoreTeamDraft} from './team-edge.mjs?v=36357097f939';
+import {contributionBreakdown} from './draft-breakdown.mjs?v=5651a00f5bbf';
 const $=id=>document.getElementById(id),esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const signed=v=>(v>0?'+':'')+v.toFixed(2),tone=v=>v>.005?'positive':v<-.005?'negative':'zero';
 const norm=s=>s.toLowerCase().replace(/[^a-z0-9]/g,''),num=n=>n.toLocaleString('en-US');
@@ -56,7 +57,7 @@ function renderBoard(){
    const id=own?(clientOwnChampion??selected):draft[side][role],c=champion(id),name=c?.name??(own?'':'Choose champion');
    const fixed=!own&&roleOverrides[side]?.[id]===role,guess=!own&&roleDetails[side]?.[id];
    const uncertain=guess&&!fixed&&(guess.unsupported||guess.alternatives.length);
-   const hint=fixed?'Manual role. Auto roles will keep this correction.':uncertain?(guess.unsupported?'Limited role data. Drag to correct.':'Could also be '+guess.alternatives.map(r=>ROLE_NAMES[r]).join(' or ')+'. Drag to correct.'):'Drag to move; drop on a champion to swap roles.';
+   const hint=fixed?'Manual role. Auto guess roles will keep this correction.':uncertain?(guess.unsupported?'Limited role data. Drag to correct.':'Could also be '+guess.alternatives.map(r=>ROLE_NAMES[r]).join(' or ')+'. Drag to correct.'):'Drag to move; drop on a champion to swap roles.';
    const marker=fixed?'<span class="role-marker fixed" title="Manual role correction">SET</span>':uncertain?'<span class="role-marker uncertain" title="'+esc(hint)+'">?</span>':'';
    const body=`${c?img(id):'<span class="placeholder">'+(own?'◈':'+')+'</span>'}<span class="slot-text"><span class="slot-role">${ROLE_NAMES[role]}${marker}${own?'<span class="you-tag">'+(clientOwnChampion?'LOCKED':c?'PREVIEW':'YOU')+'</span>':''}</span><span class="slot-name">${esc(name)}</span></span>`;
    return `<div data-slot-side="${side}" data-slot-role="${role}" class="slot ${own?'you':!c?'slot-empty':''}">${own?`<div class="slot-main" aria-label="Your ${ROLE_NAMES[role]} pick preview">${body}</div>`:`<button class="slot-main" draggable="${!!c}" title="${c?esc(hint):''}" data-side="${side}" data-role="${role}" aria-label="Choose ${side==='allies'?'allied':'enemy'} ${ROLE_NAMES[role]}">${body}</button>`}${!own&&c?`<button class="slot-move" data-move="${side}" data-role="${role}" aria-label="Move ${esc(c.name)} to another ${side==='allies'?'allied':'enemy'} role" title="Move or swap role">↔</button><button class="slot-clear" data-clear="${side}" data-role="${role}" aria-label="Remove ${esc(c.name)} from ${side==='allies'?'allied':'enemy'} ${ROLE_NAMES[role]}">×</button>`:''}</div>`;
@@ -68,6 +69,7 @@ function renderBoard(){
  $('enemy-count').textContent=Object.values(draft.enemies).filter(x=>x!=null).length+' revealed';
  document.querySelectorAll('[data-move]').forEach(b=>b.onclick=()=>openRoleMover(b.dataset.move,b.dataset.role));
  $('auto-roles').checked=autoRoles;$('auto-roles').disabled=clientSyncing;
+ $('auto-roles-sync-note').hidden=!clientSyncing;
  $('clear-role-pins').hidden=!Object.values(roleOverrides).some(p=>Object.keys(p).length);
  document.querySelectorAll('[data-your-role]').forEach(button=>{button.setAttribute('aria-pressed',String(button.dataset.yourRole===draft.role));button.disabled=datasetLoading;});
  $('include-strength').checked=includeStrength;
@@ -107,9 +109,7 @@ function renderBreakdown(){
   $('breakdown').innerHTML=`<div class="breakdown-head"><div><h2>${esc(c.name)}</h2><p>${(100*row.wr).toFixed(1)}% WR · ${info?.counterLoss!=null?info.counterLoss.toFixed(2)+' pp weighted downside':'Downside unavailable'}</p></div><span class="blind-detail">Blindability ${blindCell(row.id)}</span></div>`;
   return;
  }
- const cards=row.pairs.map(p=>`<article class="pair-card ${p.kind}"><div class="pair-title">${img(p.id,'')}<span><small>${p.kind==='enemy'?'VS':'WITH'} · ${ROLE_NAMES[p.role].toUpperCase()}</small>${esc(champion(p.id)?.name??p.id)}</span></div><div class="pair-value ${tone(p.weighted)}">${signed(p.weighted)}</div><p>${p.multiplier!==1?(p.multiplier===0?'Ignored · 0×':signed(p.adjusted)+' pp adjusted × '+p.multiplier)+'<br>':''}${p.raw==null?'No saved matchup':signed(p.raw)+' pp raw · '+num(p.games)+' games'}</p></article>`).join('');
- const base=includeStrength?`<article class="pair-card"><div class="pair-title">${img(row.id,'')}<span><small>BASE STRENGTH</small>${esc(c.name)}</span></div><div class="pair-value ${tone(row.base)}">${signed(row.base)}</div><p>${(row.wr*100).toFixed(2)}% overall WR vs 50%</p></article>`:'';
- $('breakdown').innerHTML=`<div class="breakdown-head"><div><h2>Why ${esc(c.name)}?</h2><p>Contribution from each revealed pick · sample-adjusted pp</p></div><div class="breakdown-numbers"><span class="blind-detail">Blindability ${blindCell(row.id)}</span><span class="breakdown-total ${tone(row.score)}">${signed(row.score)}</span></div></div><div class="pair-grid">${cards}${base}</div>`;
+ $('breakdown').innerHTML=contributionBreakdown(row,{champion,portrait:id=>img(id,''),includeStrength});
 }
 async function update(){
  if(datasetLoading)return;
