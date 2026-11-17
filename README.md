@@ -1,192 +1,45 @@
 # Draft Lab
 
-A role-aware League of Legends pick recommender. Enter revealed allied and enemy champions, choose your open role, and rank available candidates by their normalized counter and synergy effects across every filled slot. Includes bans, duplicate prevention, per-pick contributions, browser-local draft persistence, and an optional overall-win-rate term.
+A League of Legends draft assistant that ranks champions by synergy with your team and matchups against the enemy.
 
-[Open Draft Lab](https://pant4321.github.io/draft-lab/)
+[Open Draft Lab](https://pant4321.github.io/draft-lab/) · [Download Windows companion](https://github.com/pant4321/draft-lab/releases/latest/download/DraftLab.exe)
 
-## Run
+## Use it
 
-Requires Node and Python; no JavaScript dependency installation or build step.
+1. Choose your role and enter revealed picks and bans.
+2. Select a recommendation to preview it and inspect each contribution.
+3. Use **Your pool** to prioritize champions you play, or **Settings** to adjust role weights and automatic role guesses.
 
-```
-npm test
+Drag champions between roles to correct assignments. Drafts, pools, and settings save in your browser.
+
+For automatic imports, run the Windows companion and leave it open with League. It opens the website; choose **Connect to League** and allow local access when prompted. The companion reads champion select without making picks or bans. [Setup, troubleshooting, and build notes](companion/README.md).
+
+## Scores and data
+
+- **Draft edge:** sample-adjusted synergy and counter contributions for a candidate. Optional **Include base WR** adds overall win rate above 50%.
+- **Team draft edge:** totals the allied composition, counting each unique ally pair once.
+- **Blindability:** a 0–100 counterpick-safety percentile within a role. It orders the list before any picks are revealed.
+
+These are ranking heuristics, not predicted win probabilities. Data comes from saved LoLalytics all-ranks, global ranked solo/duo aggregates. Recommendation roles need at least 1,000 games and either 0.5% role pick share or primary-role status.
+
+[Scoring reference](docs/scoring.md) · [Data collection and updates](docs/data.md) · [Current dataset](dist/data/datasets.json) · [Privacy](https://pant4321.github.io/draft-lab/privacy.html)
+
+## Run locally
+
+Requires Node and Python. No JavaScript dependencies or build step.
+
+```sh
 npm run dev
 ```
 
-Open http://127.0.0.1:8765. Host `dist/` as a static site.
+Open [localhost:8765](http://127.0.0.1:8765/). The static website lives in `dist/`.
 
-## Publish
-
-This repository hosts the site on GitHub Pages at https://pant4321.github.io/draft-lab/. The workflow in `.github/workflows/pages.yml` runs the tests, uploads `dist/`, and deploys after a push to `main`. It can also be run manually from the repository's Actions tab. In Settings → Pages, the publishing source is GitHub Actions.
-
-No build step, server, API key, or runtime data service is required. Site links, module imports, portraits, and data paths are relative so they work under the `/draft-lab/` project path. Tests check those paths alongside the scoring and dataset tests. The entry script and stylesheet URLs include hashes of their LF-normalized contents to refresh cached files after updates; refresh these queries in `dist/index.html` whenever `dist/draft.mjs` or `dist/draft.css` changes. Picks stay in browser storage for this origin; drafts saved on the previous hosting address do not transfer automatically. To update the frozen dataset, run the collector locally, review the resulting files, run the tests, and push the update.
-
-## Dataset
-
-The default dataset combines seven discrete patches, **16.16–16.22**, updated November 17, 2026. It contains 173 champions, 216 eligible champion-role profiles, and 334,331 pair cells. Profile counts are Top 47, Jungle 50, Mid 45, Bot 29, Support 45. The seven selected captures retain 3,077 source-listed champion-role profiles before the combined eligibility cutoff. Patch 16.22 uses its fresh November 17 capture; its original November 15 capture remains archived unchanged. The original November 14 rolling 30-day snapshot is preserved byte-for-byte under `dist/data/history/30d-2026-11-14/` as a historical archive. The app always uses the combined patch view. It is never mixed into the patch aggregate because its games overlap those patches.
-
-Each patch's original capture is an immutable, checksum-verified snapshot in `dist/data/patches/<patch>/`. Explicit refreshes of the latest saved patch are stored separately in `dist/data/patch-revisions/<patch>/<capture>/`. The aggregate selects the newest capture of each patch once; overlapping captures are never added together. Low-volume off-role records are retained for future combined windows. Riot's matching patch roster is recorded for each capture. The latest patch is frozen as of its collection date, not claimed to be a finalized full-patch sample. Icons use the bundled champion assets.
-
-For each candidate, overall WR is weighted by its profile game counts across patches. For each matchup or synergy pair, sum its counts and average the published patch-local normalized Delta 2 and observed WR using that pair's own game count. Do not recompute normalized effects from pooled baselines or give patches equal weight. Opponent role pick shares are recomputed from summed role game counts. Missing pairs are not filled with neutral values. Rates are derived from published rounded aggregates, not downloaded match records or exact reconstructed win counts.
-
-The generated combined view lives in `dist/data/draft/`. `dist/data/datasets.json` lists the combined view and historical captures with file checksums. The app checks each requested file's SHA-256 before using it, caches profiles by dataset, and clears spread/score caches on cohort changes. Drafts, role pools, and score settings persist independently. Older saved dataset choices are ignored. An inconsistent or stale file is rejected rather than mixed into a different cohort.
-
-The collector reads LoLalytics' public champion build pages for enemy pairs and the same public team endpoint used by its Synergy tab for ally pairs. Every profile retains both source URLs, response hashes, and collection time. It uses published normalized Delta 2 values, rather than treating raw matchup win rates as counter or synergy strength. No Machine LoLing code, scores, data, or weights are used. The spread graph follows the user-supplied visual reference.
-
-Role tier lists identify candidate roles. A combined role profile needs at least 1,000 champion games and either 0.5% of the combined listed role pool or that champion's primary role. The cutoff is inclusive: a non-primary role at exactly 0.5% qualifies. All 173 champions have at least one supported role. The catalog retains lower-usage roles and their pair records for role inference and matchup lookup; the eligibility cutoff limits recommendation candidates. Picks entered in either draft can use any champion; the assigned slot determines the role used for pair lookup.
-
-## Windows companion
-
-[Download DraftLab.exe](https://github.com/pant4321/draft-lab/releases/latest/download/DraftLab.exe), run it, and leave its launcher open while drafting. Version 0.1.6 opens the live GitHub Pages site in your browser and supplies only the local League connection. The website, scoring code, portraits, and stats are no longer bundled in the executable. Refresh the website to receive published UI and data changes; only native bridge changes need an executable update. An internet connection is required to load the website. No Python installation or Riot API key is required. The launcher auto-detects League; use `League folder…` if League is installed somewhere it cannot find. `Open Draft Lab` reopens the site, and `Quit` stops the companion.
-
-On first connection, a centered setup popup explains the browser permission and offers a large **Connect to League** button. Choose it, then allow the browser's local/loopback access prompt. The popup closes after a successful connection. Browsers that report an existing permission grant reconnect automatically without showing setup. A blocked permission shows site-settings instructions in the popup; errors remain visible and can be retried. **Draft manually for now**, the close button, Escape, or the backdrop dismiss setup without requesting permission. The connection bar can reopen it. The temporary bridge token travels in the launch URL fragment, is removed before Analytics loads, and stays in tab session storage for reloads. It is never put in a query string, Google Analytics event, or website request. The bridge accepts the exact `https://pant4321.github.io` origin with a session header and strict CORS preflights; it listens only on `127.0.0.1`. Browser origins do not distinguish GitHub project paths, so this trusts the account's origin, not a path-based security boundary.
-
-The top controls show a compact **League** status with a one-click pause/resume button. Open the status dropdown for connection details, Connect/Reconnect, or Quit companion. Connection setup and permission help remain in the existing setup popup.
-
-The companion reads locked champion-select picks, completed bans, and your assigned role from the local League Client API about once a second. Teammate assigned roles are hints, enemy roles are inferred, and your manual role corrections always win. A new draft clears previous corrections. `Live sync` pauses or resumes importing; manually editing picks or bans during champion select also pauses it. Dragging roles continues live sync. Your own locked champion appears in your reserved slot. Public GitHub Pages remains usable for manual drafting.
-
-Companion v0.1.4 and later check this repository's latest stable GitHub release in the background at startup. A newer uploaded `DraftLab.exe` shows a **Download update** button in the launcher. It opens the official release download in your browser; it does not install or restart anything automatically. Offline or failed checks leave drafting available and show **Retry**. Install v0.1.4 manually once when upgrading from a published earlier version, which does not include the checker.
-
-Only loopback connections are accepted. Riot's local credentials stay in the native process, the client connection verifies the bundled Riot certificate, and the browser bridge requires its own per-launch session token. The companion only calls the two read endpoints for gameflow and champion select. It does not send player identities to the page or operate picks/bans in the League client. Draft IDs and role hints pass directly to the browser, not to a hosted backend. The Windows executable is unsigned. See [companion setup and build notes](companion/README.md).
-
-## Website analytics
-
-The live site uses the **Draft Lab** web stream in the existing **jake-personal** Google Analytics property. Measurement ID: `G-6MWD8RZ6FN`; Google tag: `GTM-5L5WVVS2`. Enhanced measurement is off in this stream. The asynchronously loaded tag measures page visits, with canonical page/referrer fields that exclude query strings and fragments. No custom draft, pool, search, champion, player, or bridge-token events are sent. Ads personalization and Google signals are disabled by the page parameters. Local development is excluded, and a browser Global Privacy Control signal skips the tag. A blocked tag does not prevent drafting. The visitor notice is at `privacy.html`.
-
-## Role assignment
-
-Choose your role with the five labeled role icons. All roles remain selectable, including filled allied slots. Switching to a filled role inherits its champion as your selection and places your previous preview in the role you left. Switching to an empty role also keeps your previous preview in its old slot. The committed champion is pinned there for Auto guess roles. The current selection stays a preview in the open recommendation slot, including when its assigned role lacks recommendation data. This state persists through reloads. Switching roles pauses live companion sync; resuming imports the latest client state again.
-
-Drag a revealed champion to another role on the same team. The card lifts when pressed, then follows the mouse as an opaque card with a shadow while the source slot fades and valid targets glow. Dropping onto an occupied role swaps both champions. Escape or releasing outside a valid role cancels the move. The ↔ button offers the same move options for keyboard and touch use. Your own recommendation slot remains reserved for the role selector and preview; it is excluded from drag targets.
-
-Enable **Settings > Auto guess roles** to estimate roles whenever picks change. The guesser tests every valid one-to-one team assignment and maximizes the product of each champion's role usage, derived from its saved games by role. This lets later picks resolve earlier flex picks. An unsupported role gets a one-game fallback weight, allowing unusual assignments when needed without treating missing data as a normal role. Exact ties prefer existing placements. The result is a heuristic based on the supported role snapshot, not a calibrated role probability.
-
-A `?` flags an unsupported role or another assignment within a factor of two of the best joint likelihood. A manual move pins that champion's role, marked `SET`; a manual swap pins both. Corrections follow champion IDs across role inference updates and remain until that champion leaves the draft, `Clear corrections` is used, or the draft is reset. Auto guess roles, draft state, and corrections persist in browser storage. Auto guess roles starts off for existing manual drafting. The Windows companion uses this same assignment module for live client snapshots. Live syncing enables role guessing automatically; pause live sync to change the setting manually.
-
-## Update datasets
-
-Collection requires Python and `beautifulsoup4`. Collect missing patches, then rebuild from the newest saved capture of each patch:
-
-```
-python scripts/update_datasets.py --patches 16.17 16.18 16.19 16.20 16.21 16.22
-```
-
-When the next patch is available, append just that patch:
-
-```
-python scripts/update_datasets.py --patches 16.23
-```
-
-To update the latest saved patch while it is still live, explicitly request a new capture:
+## Check and publish
 
 ```sh
-python scripts/update_datasets.py --refresh-latest
+npm test
+python -m unittest discover -s companion/tests
+python -m unittest discover -s tests/python
 ```
 
-This uses a fresh cache and a new immutable capture directory, leaving the original and previous refreshes unchanged. Offline rebuilding verifies every saved capture and selects the most recent one per patch, including its exact source directory in the combined catalog. Refreshing the current patch replaces its contribution to the aggregate; it never adds a second overlapping copy of that patch.
-
-Already-complete patches passed through `--patches` are verified and skipped before any network request. Parsed per-profile caches make interrupted collection resumable. All source-listed role profiles are retained so future combinations can apply eligibility thresholds without revisiting old patches. Source build headers must match the requested patch, champion, role, and ranked queue; tier metadata must match patch, lane, rank, and region. Failed collection publishes no patch snapshot. A snapshot manifest is written only after all profiles complete, and its files are verified before reuse. Existing capture files always remain frozen; only an explicit `--refresh-latest` request downloads another capture.
-
-To rebuild entirely offline after adding a complete snapshot directory, run without patch arguments:
-
-```
-python scripts/update_datasets.py
-```
-
-This recomputes the combined view and dataset index while leaving every patch capture and the historical 30-day capture unchanged. A changed eligibility cutoff also invalidates the cached combined view, so rerunning this command reapplies the current policy without downloading snapshots. The combined view can be regenerated if damaged; corrupt source archives fail validation, including superseded captures. No rolling-window data is added to the combined view. Patch balance changes remain part of this historical aggregate, so it is not presented as a current-patch-only forecast. Every patch profile retains source URLs, hashes, and collection time.
-
-## Score
-
-The **Team draft edge** summary below the draft details totals the current allied composition against revealed enemies. It shows the total, Counters, Synergy, and optional Base strength, with a short message only when required data is missing. Each unique allied pair contributes synergy once, and each allied-versus-enemy pair contributes a counter term from the ally's perspective. Unknown slots add no terms. The selected recommendation fills your role as a preview marked on the board; a locked companion pick takes precedence. The summary updates with manual picks, candidate inspection, role corrections, live imports, resets, and Settings changes.
-
-With default weights, team synergy matches the sum of the team's ten unique pairs for a complete five-champion composition. A synergy pair uses the mean of its two role weights and the mean of available directional sample-adjusted effects; a saved reverse record is sufficient because synergy is shared. Counters use the opposing role's counter weight. **Include base WR** adds each allied champion's base term once. Missing active pair or base data leaves the total unavailable instead of showing a partial sum as complete. A zero-weight term is explicitly ignored. This is a cumulative draft-fit index, not a predicted win probability or a comparison with the enemy team's own synergy total.
-
-For candidate C in the user's role, look up every revealed ally and enemy by champion AND role. Enemy Delta 2 is from C's perspective. Ally Delta 2 represents the shared pair's normalized synergy. Blank slots add no term.
-
-For each pair:
-
-```
-adjusted effect = published normalized delta in pp * n / (n + 1000)
-weighted effect = adjusted effect * the multiplier for that side and role
-draft edge = sum(weighted enemy effects) + sum(weighted ally effects)
-```
-
-The 1,000-game setting is a fixed conservative shrinkage choice, not a fitted or calibrated parameter. It reduces the influence of noisy small samples. Both raw values and pair game counts remain visible in the contribution breakdown.
-
-The **Why this champion?** panel shows every revealed contribution in role order, split into blue **With your team** and rose **Against the enemy** groups with separate subtotals. Each card has a 32px champion portrait, a right-aligned adjusted contribution, and its raw delta and compact game count; hover the count for the exact sample size. A shared **Adjusted contribution · pp** label identifies the large values. Custom role weights remain visible, ignored slots say **Ignored**, and unavailable matchups say **No data**. Optional base strength appears on its own line. At desktop width, all nine possible pair contributions share one row; narrower screens stack the groups and cards. The desktop draft spacing leaves room for the breakdown and team total on a 1080p display.
-
-Secondary draft labels and win rates use larger text for desktop readability. Supporting borders and contribution backdrops stay subdued, while the selected recommendation has a stronger fill and left accent. Settings, pool, reset, and connection controls share consistent sizing and hover feedback, with larger touch targets on coarse pointers.
-
-On desktop, the five draft slots use 75px cards and 40px portraits. A tighter search toolbar and six 57px recommendation rows align their bottom edges. Ranking counts and pair-coverage text are omitted below the list. Mobile keeps its smaller draft slots.
-
-**Settings** opens a compact role-multiplier table with separate **Synergy / Your team** and **Counters / Enemy team** columns for Top, Jungle, Mid, Bot, and Support. Values range from 0 to 5 and default to 1. The number controls increase/decrease by 0.1. Changes save and rerank immediately. They apply to the champion's assigned draft position, including manual corrections and live imports. Empty slots and your own recommendation slot add nothing. A 2× setting doubles that role's positive or negative contribution; 0× explicitly ignores the slot and removes its data-coverage requirement. Other revealed pairs still require saved data. Each breakdown card shows the weighted contribution and any non-default multiplier, and marks ignored slots explicitly.
-
-Multipliers are local preferences shared across your selected roles and datasets. They are stored under `draftlab-role-multipliers-v1`, independently of the draft and champion pools. Reset draft and live-client updates preserve them; **Reset multipliers** restores all ten values to 1. Invalid or malformed saved values fall back to 1 per field. Custom settings are marked beside Settings and in the draft ranking context. Multipliers do not alter blindability, spread graphs, source stats, role inference, or the optional base-WR contribution. These are personal ranking preferences, not fitted role coefficients.
-
-Default ranking uses draft fit only. `Include base WR` adds `100 * (candidate overall WR - 0.5)`. This switch ranks by base strength plus fit and remains optional because overall win rates include player and draft selection effects.
-
-Taken and banned champions are excluded. A candidate missing any revealed pair is left unranked rather than given an invented neutral contribution. Before any ally or enemy is revealed, the website lists the selected role's champions by descending blindability, with alphabetical ties and unavailable blindability last. Bans still exclude champions. Counter, synergy, and draft edge show dashes, and `Include base WR` is disabled in this view. The user's slot stays empty until a candidate is inspected. Blindability graphs work in both views.
-
-Once any ally or enemy is revealed, candidate order switches to descending draft score with stable ID tie-breaking. Blindability never affects draft edge or this order. Clearing the draft returns to the blindability list. The user's own slot is a preview, not a recorded pick, so it is excluded from candidate pair inputs while remaining included in the team total. Selecting a filled role transfers that champion into the preview and commits the previous preview to its old role.
-
-The champion picker sorts by descending pick rate in the clicked slot's role, followed by alphabetical ties. The ban picker uses the user's role. Search filters that order; champions without data for that role appear after champions with role pick rates. A short label in the picker identifies the role used for popularity.
-
-Search, **Include base WR**, and **Your pool** share a compact toolbar above the recommendation list. The toolbar wraps on narrow screens to keep each control available.
-
-**Your pool** opens a role-specific champion selector. Add or remove champions with immediate browser-local saving; switching roles loads that role's separate pool. The selector offers champions with a saved profile for the selected role. Pool choices remain through draft resets and live client updates. They are stored separately from the draft, so a reset does not erase preferences. Version 0.1.6 uses the same GitHub Pages browser storage for manual and companion drafting. Older localhost preferences stay separate and are not transferred.
-
-Recommendations put **Your pool** first, followed by **Other champions**. Each section retains the existing descending blindability or draft-edge order, and numbering starts at 1 in each section. Pool membership does not change any score, blindability percentile, pair contribution, eligibility, or data-coverage rule. Banned, picked, unsupported, and unranked candidates are not promoted into the list. An empty pool keeps the original single list; a pool with no available candidates displays an empty-section message above the other champions. Search filters both sections.
-
-Clicking the shaded backdrop dismisses the champion/ban picker just like its close button or Escape. Clicking content or dialog padding, or dragging from inside to outside, keeps it open. Clicking the spread graph retains focus inside its popup; its selector and close button keep their normal behavior.
-
-The result is an additive draft score expressed in adjusted percentage-point contributions. It is not a predicted game win probability or a validated causal gain from selecting the champion. Pair samples overlap, pair effects can interact, and summing them can double-count correlated information. Each revealed role enters through its own pair effect and its user-selected multiplier, which defaults to 1. Unknown future picks are not imputed or penalized. The optional base term and fixed shrinkage both need held-out validation before presenting calibrated match odds.
-
-## Counterpick-safety blindability
-
-Blindability is a static 0-100 percentile of counterpick safety within the selected role. It measures pick-rate-weighted negative enemy matchup effects. Lower downside earns a higher score. It sorts the empty-draft list and remains fixed while picks and bans change. Base win rate, positive matchup bonuses, ally synergy, and player preferences do not enter the score. Role WR remains visible separately. Blindability never enters draft edge, draft-edge ordering, pair contributions, or the optional `Include base WR` mode.
-
-For each of the five enemy roles, use independent role pick rates from the saved catalog. Exclude the candidate itself and zero/unlisted role pick rates. Include rare recorded roles rather than applying a popularity floor. A pair needs at least 100 games and a finite normalized Delta 2. Each enemy role needs at least five eligible pairs and 80% of positive meta weight covered. Normalize the covered pick-rate weights within that role, using the full eligible pool including favorable matchups as the denominator.
-
-```
-adjusted delta = normalized enemy Delta 2 * n / (n + 1000)
-role downside = sum(opponent role pick-rate share * max(0, -adjusted delta))
-weighted downside = sum(role downside across all five enemy roles)
-```
-
-This uses every eligible negative matchup, not a worst-matchup cutoff. A 5 pp adjusted loss against a 1% opponent contributes 0.05 pp; a 1 pp loss against a 20% opponent contributes 0.20 pp. Positive effects contribute zero loss while retaining their share of the full opponent pool. Increasing positive bonuses cannot increase downside. Ally synergy and candidate WR cannot affect the score. Sample shrinkage reduces the influence of small pair samples; variance noise subtraction is used only in the spread graphs.
-
-Convert downside to a percentile among resolved candidates in the same role: `round(100 * (higher-downside peers + 0.5 * tied peers) / (peer count - 1))`. Compare unrounded values with a 1e-9 tolerance. A score of 90 means lower modeled downside than about 90% of rated role peers, not a 90% win probability. Banned/taken candidates remain in the comparison pool so scores stay fixed. Missing enemy coverage or fewer than two comparable candidates produce an unavailable score. A noise-dominated graph does not invalidate a separately supported downside estimate.
-
-This is a heuristic from frozen all-ranks aggregate data. The 100-game minimum, 80% coverage threshold, and 1,000-game shrinkage are design choices, not fitted parameters. The metric describes negative exposure against ordinary role pick shares; it does not model the enemy adapting its selection after seeing the candidate. Pair effects are observational and can overlap, so the sum is not a predicted causal win-rate loss. Low WR champions can score highly if they have little negative exposure. Validate the score on held-out ordered drafts before claiming better first-pick outcomes.
-
-Hover, focus, or tap any blindability number to open the supplied-reference-style WR delta graph. The summary shows weighted downside. Graphs remain separate descriptive views, including all five enemy and four other ally roles. For visual readability they retain the 0.5% common-champion role-pick floor, and also require pair win probabilities for variance noise correction. The score includes rarer recorded roles and needs only enemy deltas and counts, so missing ally data cannot lower blindability.
-
-Portraits sit at their exact published normalized deltas and stack vertically. The graph has a red-to-green background, zero guide, and dashed -2 pp guide. Its white normal-approximation curve is centered on the group's weighted mean, with standard deviation from `observed variance - sum(w*(1-w)*10000*p*(1-p)/(n-1))`. The badge reports that group's estimated true spread. Curve height is fixed for display; one icon represents one eligible matchup regardless of pick rate. Unresolved variance hides the curve and labels spread unresolved; missing graph coverage shows no chart. Portrait labels include raw deltas and games.
-
-Graph spread is not used in the safety score. Group choices and graph data stay in browser memory without new stats requests. This visual uses our frozen snapshot and estimator and does not claim to reproduce the reference's numbers. Move away, click outside, close, or press Escape to dismiss.
-
-## Verification
-
-Multiplier tests cover independent ally/enemy weights, fractional and zero values, negative effects, exact default-score/ranking preservation, role changes, ignored missing data, unchanged bans and base strength, blind-list invariance, no source mutation, settings validation, independent persistence, and reset behavior. Browser checks cover live reranking, weighted breakdowns, reload persistence, invalid inputs, reset independence, and settings dismissal.
-
-Live-site connection tests cover fragment cleanup, reload persistence, strict loopback endpoints, permission gating and denial, no parallel polling, pause/resume, failed and successful quit, exact-origin CORS, token rejection, and blocking non-loopback binds. The frozen executable smoke test checks its live launch URL, CORS, authenticated state, and shutdown. Analytics tests check sanitized page fields, localhost exclusion, one-time asynchronous initialization, privacy signals, and token removal before tag startup.
-
-Dataset tests cover pair-specific game weighting, summed counts and role shares, no overlap with the 30-day archive, immutable snapshot checksums, idempotent offline rebuilding, append-only updates without network access to old patches, latest-capture replacement without double counting, timestamp conflict rejection, fresh refresh caches, cohort-isolated browser caching, and rejection of stale or mixed files. Earlier browser checks covered cohort switching and cohort-specific spread graphs. The app now loads the combined default without a data selector; archive integrity and cohort isolation remain tested.
-
-Champion-pool tests cover stable group ordering for both scoring modes, unchanged scores and eligibility, role-specific persistence, reset independence, and malformed settings. Browser checks cover selecting/removing pool champions, switching roles, grouping, bans, reload persistence, and backdrop dismissal.
-
-Overlay regression tests cover graph-click focus retention, native selector/button behavior, backdrop dismissal, dialog padding, pointer cancellation, and drags across the dialog boundary. Browser checks cover repeated graph clicks, group selection, Escape, champion and ban backdrop dismissal, and keeping applied bans after dismissal.
-
-Startup-update tests cover numeric version ordering, stable release filtering, uploaded executable validation, bounded unauthenticated requests, offline/rate-limit errors, background execution, and retry deduplication. Earlier bundled versions were checked through their local page; version 0.1.6 uses the live site and keeps the native update checker for bridge changes.
-
-Companion regression tests cover custom-game bots whose selected roster champions have no pick actions, human hover exclusion, and inferring an unassigned local role from four known teammate roles.
-
-Default-list tests cover all five real role pools, descending blindability, alphabetical ties, unavailable scores, bans-only drafts, switching to unchanged draft-edge rankings when a pick arrives, and role-specific picker popularity. Browser checks cover default graphs, role changes, pick-triggered sorting, reset, bans, and picker sort labels.
-
-`npm test` covers the exact two-ally/three-enemy jungle example, scoring across enemy roles, synergy-driven changes in the best pick, duplicate and ban handling, missing data, empty drafts, sample adjustment, optional strength, all combined pair cells, candidate coverage for all 173 champions, and a real five-pair draft in every role.
-
-Browser checks exercise manual picks, exclusion rules, bans, role changes, search, contribution breakdowns, and draft reset. Role-assignment tests cover joint flex-pick inference, later arrivals, ties, uncertain assignments, own-role exclusion, stale corrections, swaps, and scoring against corrected roles. Browser checks cover a native drag to an empty role, swaps via the move button, corrections surviving new picks and reloads, clearing corrections, and the mobile move dialog. Blindability checks cover exact pick-share multipliers, rare versus common counters, sample shrinkage, positive-side/ally/base-WR invariance, summed role downside, percentiles and ties, missing enemy data, graph variance correction, and exact draft-score/ranking invariance. Spread popup browser checks cover tap, keyboard focus, Escape, close, champion selection, matchup group changes, unchanged draft edge, and viewport containment at desktop and 390px width. Draft state stays in browser local storage. Reset clears picks, bans and manual role corrections; the chosen role, auto-role setting and optional score mode remain selected.
-
-## Next validation
-
-Test ranking against held-out matches, choose shrinkage strength using separate training data, and evaluate cross-pair correlations. Collect additional rank cohorts before offering rank selectors. Freshness is a frozen date, not a claim of live patch updates.
+Pushes to `main` run these checks and deploy `dist/` to GitHub Pages. See [AGENTS.md](AGENTS.md) for asset-cache versioning and repository rules.

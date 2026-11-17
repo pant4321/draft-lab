@@ -20,7 +20,7 @@ Published v0.1.3 and earlier executables do not include this check. Download v0.
 
 ## Saved datasets
 
-The live site defaults to combined patches 16.17–16.22, captured November 15, 2026. The app uses the combined view with no data selector. The original November 14 30-day snapshot stays archived separately. The website verifies requested combined files against saved SHA-256 hashes. Discrete source patch archives stay in the repository for offline recombination and future append-only collection. Version 0.1.5 bundled these views; version 0.1.6 contains no website or dataset files.
+The website loads the combined view listed in the [dataset index](../dist/data/datasets.json), verifying file checksums before use. Data updates are independent of executable releases. See [dataset maintenance](../docs/data.md) for collection and archive rules.
 
 ## Sync behavior
 
@@ -40,7 +40,7 @@ Version 0.1.3 changes blindability to counterpick safety only: negative enemy de
 
 Client state is read through `GET /lol-gameflow/v1/gameflow-phase` and `GET /lol-champ-select/v1/session`. No client write endpoints are used. The API response exposed to the browser contains draft champion IDs and role hints, with names, PUUIDs, account IDs, and local client credentials removed. The browser API checks its session token, Host, and Origin. Strict CORS allows only `https://pant4321.github.io` with `X-DraftLab-Session`, `GET /api/state`, and `POST /api/quit`. Other origins, preflight methods/headers, paths, and non-loopback bindings are rejected. The same loopback origin and no-Origin authenticated native smoke tests remain supported. GitHub project paths share their account's origin; the origin allowlist is not a path boundary. Bridge protocol 1 is separate from the executable version so compatible website changes need no native update. Riot TLS validation uses the bundled certificate from [Riot's developer docs](https://developer.riotgames.com/docs/lol#league-client-api); certificate chain validation stays enabled.
 
-The live site's Google Analytics stream measures page visits. Draft state, searches, pools, League identities, and companion credentials are not sent as analytics events. See the root README for tag IDs and sanitization rules.
+The live site's Google Analytics stream measures page visits. Draft state, searches, pools, League identities, and companion credentials are not sent as analytics events. Tag configuration and sanitization are in [analytics.mjs](../dist/analytics.mjs); see the [privacy notice](https://pant4321.github.io/draft-lab/privacy.html).
 
 This first release targets standard role-based Summoner's Rift drafts. Other champion-select modes and unusual client schema changes need separate validation. The local League Client API is not officially supported for third-party apps, and Riot asks developers to register products and their API usage. See [Riot's current guidance](https://developer.riotgames.com/docs/lol#league-client-api).
 

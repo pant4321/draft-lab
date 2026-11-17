@@ -165,6 +165,9 @@ function renderSettings(){
   try{saveMultipliers(localStorage,multipliers);}catch{}update();
  });
 }
+$('companion-download-open').onclick=()=>{hideSpread();$('companion-download-dialog').showModal();};
+$('companion-download-close').onclick=()=>$('companion-download-dialog').close();
+dismissOnBackdrop($('companion-download-dialog'),()=>$('companion-download-dialog').close());
 $('draft-settings').onclick=()=>{hideSpread();renderSettings();$('draft-settings-dialog').showModal();};
 $('close-settings').onclick=()=>$('draft-settings-dialog').close();
 $('settings-done').onclick=()=>{

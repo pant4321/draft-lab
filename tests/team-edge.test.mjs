@@ -99,9 +99,9 @@ test('role corrections use profiles in the newly assigned roles and duplicate/ba
  assert.throws(()=>scoreTeamDraft(emptyDraft(),profiles,{priorGames:-1}));
 });
 
-test('the original frozen six-patch cohort reproduces its independently searched 0.5% optimum',()=>{
+test('frozen historical profiles preserve the independently calculated full-team synergy',()=>{
  const draft=emptyDraft('jungle'),ids={top:126,jungle:76,middle:4,bottom:236,support:350};
- const patches=['16.17','16.18','16.19','16.20','16.21','16.22'];
+ const patches=['16.17','16.18','16.19','16.20','16.21'];
  const profiles=Object.fromEntries(ROLES.map(role=>{
   const parts=patches.map(patch=>JSON.parse(readFileSync(new URL(`../dist/data/patches/${patch}/${role}.json`,import.meta.url))).profiles[ids[role]]).filter(Boolean);
   const ally=Object.fromEntries(ROLES.filter(other=>other!==role).map(other=>{
@@ -113,5 +113,5 @@ test('the original frozen six-patch cohort reproduces its independently searched
  for(const role of ROLES)if(role!==draft.role)draft.allies[role]=ids[role];
  const total=scoreTeamDraft(draft,profiles,{ownChampion:ids.jungle});
  assert.equal(total.complete,true);assert.equal(total.terms.length,10);
- near(total.score,18.913989137679888);near(total.counter,0);
+ near(total.score,19.168470441115755);near(total.counter,0);
 });

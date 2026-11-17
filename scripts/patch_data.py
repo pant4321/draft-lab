@@ -208,7 +208,8 @@ def rebuild(data_root):
     snapshots = [snapshot for _, snapshot in selected]
     if not snapshots:
         raise ValueError('No complete patch snapshots found.')
-    revision = digest(encoded(sorted((c['patch'], digest(encoded(m))) for c, _, m in snapshots)))
+    revision = digest(encoded([(c['patch'], digest(encoded(m)), directory.relative_to(data_root).as_posix())
+                               for directory, (c, _, m) in selected]))
     current = data_root / 'draft'
     try:
         catalog, _, manifest = read_snapshot(current)

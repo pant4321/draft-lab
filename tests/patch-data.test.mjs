@@ -47,7 +47,7 @@ test('combined dataset uses only distinct patch snapshots and every saved file v
  }
 });
 
-test('the original six patch captures remain immutable after refreshing the live patch',()=>{
+test('the completed historical patch captures remain immutable',()=>{
  const original=JSON.parse(readFileSync(new URL('fixtures/original-patch-hashes.json',import.meta.url),'utf8'));
  for(const [patch,expected] of Object.entries(original)){
   assert.equal(createHash('sha256').update(readFileSync(new URL('patches/'+patch+'/snapshot.json',root))).digest('hex'),expected);

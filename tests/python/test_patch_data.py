@@ -176,5 +176,20 @@ class PatchDataTests(unittest.TestCase):
             write_snapshot(root/'patches'/'16.17',c,p,kind='patch')
             with self.assertRaisesRegex(ValueError,'timezone'):select_patch_snapshots(root)
 
+    def test_promoting_a_capture_rebuilds_its_source_path_without_changing_scores(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);c,p,_=snapshot('16.22')
+            revision=root/'patch-revisions'/'16.22'/'fresh'
+            write_snapshot(revision,c,p,kind='patch')
+            first=rebuild(root);before=read_snapshot(root/'draft')[1]
+            canonical=root/'patches'/'16.22'
+            write_snapshot(canonical,c,p,kind='patch')
+            with patch('scripts.patch_data.select_patch_snapshots',return_value=[(canonical,read_snapshot(canonical,'16.22'))]):
+                second=rebuild(root)
+            catalog,after,_=read_snapshot(root/'draft')
+            self.assertNotEqual(first['datasets'][0]['revision'],second['datasets'][0]['revision'])
+            self.assertEqual(catalog['components'][0]['base'],'data/patches/16.22')
+            self.assertEqual(before,after)
+
 
 if __name__=='__main__':unittest.main()
