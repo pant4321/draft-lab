@@ -96,8 +96,6 @@ function renderRanking(){
   const heading=section.title?`<h2 class="ranking-group">${section.title} <span>${section.rows.length}</span></h2>`:'';
   return heading+section.rows.map(row=>`<div class="pick ${row.id===selected?'selected':''}" data-pool-group="${section.key}"><button class="pick-inspect" data-candidate="${row.id}" aria-label="Inspect ${esc(champion(row.id).name)}, rank ${row.index}${section.title?' in '+section.title.toLowerCase():''}${blind?'':', draft edge '+signed(row.score)}"></button><span class="pick-lead"><span class="pick-rank">${row.index}</span>${img(row.id)}<span class="pick-name">${esc(champion(row.id).name)}<small>${(100*row.wr).toFixed(1)}% WR${row.smallSample?' · small samples':''}</small></span></span><span class="pick-pair ${blind?'zero':tone(row.counter)}">${blind?'—':signed(row.counter)}</span><span class="pick-pair ${blind?'zero':tone(row.synergy)}">${blind?'—':signed(row.synergy)}</span>${blindCell(row.id)}<span class="pick-total ${blind?'zero':tone(row.score)}">${blind?'—':signed(row.score)}</span></div>`).join('');
  }).join('')+(!hasRows?'<div class="empty"><h3>No matching recommendations.</h3><p>Clear your search or change the draft.</p></div>':'');
- const active=ranking.shown-ranking.ignored;
- $('ranking-footer').textContent=blind?`${ranking.ranked.length} champions · Highest blindability first`:`${ranking.ranked.length} ranked · ${active}/${active} ${ranking.ignored?'active':'revealed'} pairs covered${ranking.ignored?' · '+ranking.ignored+' ignored':''}`+(ranking.insufficient.length?` · ${ranking.insufficient.length} unranked for missing data`:'');
  document.querySelectorAll('[data-candidate]').forEach(b=>b.onclick=()=>{selected=+b.dataset.candidate;inheritedSelection=false;persist();renderRanking();renderBoard();renderBreakdown();});
 }
 function renderBreakdown(){
@@ -119,7 +117,7 @@ async function update(){
   if(autoRoles){const guess=inferDraftRoles(draft,champions,combineRoleHints(draft,roleOverrides,clientHints));draft=guess.draft;roleDetails=guess.details;}
   persist();renderBoard();
   if(!profiles[draft.role]){
-   ranking=null;$('breakdown').hidden=true;$('ranking-footer').textContent='';
+   ranking=null;$('breakdown').hidden=true;
    $('ranking-context').textContent='Loading '+ROLE_NAMES[draft.role].toLowerCase()+' pairs…';
    $('rankings').innerHTML='<div class="empty"><h3>Loading '+ROLE_NAMES[draft.role].toLowerCase()+' matchups…</h3></div>';
   }
