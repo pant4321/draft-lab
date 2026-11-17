@@ -1,14 +1,15 @@
-"""Download only missing patches, then rebuild the combined view offline."""
+"""Download missing patches or a fresh latest-patch capture, then rebuild offline."""
 import argparse
 from pathlib import Path
 import sys
+from datetime import datetime, timezone
 
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
-from scripts.patch_data import preserve_history,rebuild,patch_key,read_snapshot
+from scripts.patch_data import preserve_history,rebuild,patch_key,read_snapshot,select_patch_snapshots
 
 
-def update(patches, data_root=ROOT/'dist/data', cache_root=ROOT/'cache-patches'):
+def update(patches, data_root=ROOT/'dist/data', cache_root=ROOT/'cache-patches', *, refresh_latest=False):
     data_root,cache_root=Path(data_root),Path(cache_root)
     preserve_history(data_root)
     for patch in sorted(set(patches),key=patch_key):
@@ -19,6 +20,15 @@ def update(patches, data_root=ROOT/'dist/data', cache_root=ROOT/'cache-patches')
             continue
         from scripts.collect_draft import collect
         collect(cache_root/patch,patch,output,all_roles=True)
+    if refresh_latest:
+        saved=select_patch_snapshots(data_root)
+        if not saved:
+            raise ValueError('Collect a patch before refreshing the latest saved patch.')
+        patch=saved[-1][1][0]['patch']
+        capture=datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
+        from scripts.collect_draft import collect
+        collect(cache_root/'refreshes'/patch/capture,patch,
+                data_root/'patch-revisions'/patch/capture,all_roles=True)
     result=rebuild(data_root)
     print('Combined saved patches: '+', '.join(result['datasets'][0]['patches']),flush=True)
     return result
@@ -29,4 +39,5 @@ if __name__=='__main__':
     parser.add_argument('--patches',nargs='*',default=[],help='Only missing patches are downloaded. All saved patches enter the combined view.')
     parser.add_argument('--data-root',type=Path,default=ROOT/'dist/data')
     parser.add_argument('--cache-root',type=Path,default=ROOT/'cache-patches')
-    args=parser.parse_args();update(args.patches,args.data_root,args.cache_root)
+    parser.add_argument('--refresh-latest',action='store_true',help='Save a fresh capture of the latest saved patch; preserve all earlier captures.')
+    args=parser.parse_args();update(args.patches,args.data_root,args.cache_root,refresh_latest=args.refresh_latest)

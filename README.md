@@ -23,9 +23,9 @@ No build step, server, API key, or runtime data service is required. Site links,
 
 ## Dataset
 
-The default dataset combines six discrete patches, **16.17–16.22**, captured November 15, 2026. It contains 173 champions, 216 eligible champion-role profiles, and 334,318 pair cells. Profile counts are Top 47, Jungle 51, Mid 45, Bot 29, Support 44. The original November 14 rolling 30-day snapshot is preserved byte-for-byte under `dist/data/history/30d-2026-11-14/` as a historical archive. The app always uses the combined patch view. It is never mixed into the patch aggregate because its games overlap those patches.
+The default dataset combines seven discrete patches, **16.16–16.22**, updated November 17, 2026. It contains 173 champions, 216 eligible champion-role profiles, and 334,331 pair cells. Profile counts are Top 47, Jungle 50, Mid 45, Bot 29, Support 45. The seven selected captures retain 3,077 source-listed champion-role profiles before the combined eligibility cutoff. Patch 16.22 uses its fresh November 17 capture; its original November 15 capture remains archived unchanged. The original November 14 rolling 30-day snapshot is preserved byte-for-byte under `dist/data/history/30d-2026-11-14/` as a historical archive. The app always uses the combined patch view. It is never mixed into the patch aggregate because its games overlap those patches.
 
-Each patch is an immutable, checksum-verified snapshot in `dist/data/patches/<patch>/`. The six source snapshots retain 2,635 source-listed champion-role profiles, including low-volume off-role records that may become useful in later combined windows. Riot's matching patch roster is recorded for each capture. Patch 16.22 is frozen as of the collection date, not claimed to be a finalized full-patch sample. Completed snapshots are reused without fetching their old URLs again. Icons use the bundled champion assets.
+Each patch's original capture is an immutable, checksum-verified snapshot in `dist/data/patches/<patch>/`. Explicit refreshes of the latest saved patch are stored separately in `dist/data/patch-revisions/<patch>/<capture>/`. The aggregate selects the newest capture of each patch once; overlapping captures are never added together. Low-volume off-role records are retained for future combined windows. Riot's matching patch roster is recorded for each capture. The latest patch is frozen as of its collection date, not claimed to be a finalized full-patch sample. Icons use the bundled champion assets.
 
 For each candidate, overall WR is weighted by its profile game counts across patches. For each matchup or synergy pair, sum its counts and average the published patch-local normalized Delta 2 and observed WR using that pair's own game count. Do not recompute normalized effects from pooled baselines or give patches equal weight. Opponent role pick shares are recomputed from summed role game counts. Missing pairs are not filled with neutral values. Rates are derived from published rounded aggregates, not downloaded match records or exact reconstructed win counts.
 
@@ -65,7 +65,7 @@ A `?` flags an unsupported role or another assignment within a factor of two of 
 
 ## Update datasets
 
-Collection requires Python and `beautifulsoup4`. Collect only missing patches, then rebuild from all saved patch archives:
+Collection requires Python and `beautifulsoup4`. Collect missing patches, then rebuild from the newest saved capture of each patch:
 
 ```
 python scripts/update_datasets.py --patches 16.17 16.18 16.19 16.20 16.21 16.22
@@ -77,7 +77,15 @@ When the next patch is available, append just that patch:
 python scripts/update_datasets.py --patches 16.23
 ```
 
-Already-complete patches are verified and skipped before any network request. Parsed per-profile caches make interrupted collection resumable. All source-listed role profiles are retained so future combinations can apply eligibility thresholds without revisiting old patches. Source build headers must match the requested patch, champion, role, and ranked queue; tier metadata must match patch, lane, rank, and region. Failed collection publishes no patch snapshot. A snapshot manifest is written only after all profiles complete, and its files are verified before reuse. Existing snapshots remain frozen, including the partial latest patch; later balance changes are not retroactively fetched into them.
+To update the latest saved patch while it is still live, explicitly request a new capture:
+
+```sh
+python scripts/update_datasets.py --refresh-latest
+```
+
+This uses a fresh cache and a new immutable capture directory, leaving the original and previous refreshes unchanged. Offline rebuilding verifies every saved capture and selects the most recent one per patch, including its exact source directory in the combined catalog. Refreshing the current patch replaces its contribution to the aggregate; it never adds a second overlapping copy of that patch.
+
+Already-complete patches passed through `--patches` are verified and skipped before any network request. Parsed per-profile caches make interrupted collection resumable. All source-listed role profiles are retained so future combinations can apply eligibility thresholds without revisiting old patches. Source build headers must match the requested patch, champion, role, and ranked queue; tier metadata must match patch, lane, rank, and region. Failed collection publishes no patch snapshot. A snapshot manifest is written only after all profiles complete, and its files are verified before reuse. Existing capture files always remain frozen; only an explicit `--refresh-latest` request downloads another capture.
 
 To rebuild entirely offline after adding a complete snapshot directory, run without patch arguments:
 
@@ -85,7 +93,7 @@ To rebuild entirely offline after adding a complete snapshot directory, run with
 python scripts/update_datasets.py
 ```
 
-This recomputes the combined view and dataset index while leaving every old patch and the historical 30-day capture unchanged. A changed eligibility cutoff also invalidates the cached combined view, so rerunning this command reapplies the current policy without downloading snapshots. The combined view can be regenerated if damaged; corrupt source archives fail validation. No rolling-window data is added to the combined view. Patch balance changes remain part of this historical aggregate, so it is not presented as a current-patch-only forecast. Every patch profile retains source URLs, hashes, and collection time.
+This recomputes the combined view and dataset index while leaving every patch capture and the historical 30-day capture unchanged. A changed eligibility cutoff also invalidates the cached combined view, so rerunning this command reapplies the current policy without downloading snapshots. The combined view can be regenerated if damaged; corrupt source archives fail validation, including superseded captures. No rolling-window data is added to the combined view. Patch balance changes remain part of this historical aggregate, so it is not presented as a current-patch-only forecast. Every patch profile retains source URLs, hashes, and collection time.
 
 ## Score
 
@@ -163,7 +171,7 @@ Multiplier tests cover independent ally/enemy weights, fractional and zero value
 
 Live-site connection tests cover fragment cleanup, reload persistence, strict loopback endpoints, permission gating and denial, no parallel polling, pause/resume, failed and successful quit, exact-origin CORS, token rejection, and blocking non-loopback binds. The frozen executable smoke test checks its live launch URL, CORS, authenticated state, and shutdown. Analytics tests check sanitized page fields, localhost exclusion, one-time asynchronous initialization, privacy signals, and token removal before tag startup.
 
-Dataset tests cover pair-specific game weighting, summed counts and role shares, no overlap with the 30-day archive, immutable snapshot checksums, idempotent offline rebuilding, append-only updates without network access to old patches, cohort-isolated browser caching, and rejection of stale or mixed files. Earlier browser checks covered cohort switching and cohort-specific spread graphs. The app now loads the combined default without a data selector; archive integrity and cohort isolation remain tested.
+Dataset tests cover pair-specific game weighting, summed counts and role shares, no overlap with the 30-day archive, immutable snapshot checksums, idempotent offline rebuilding, append-only updates without network access to old patches, latest-capture replacement without double counting, timestamp conflict rejection, fresh refresh caches, cohort-isolated browser caching, and rejection of stale or mixed files. Earlier browser checks covered cohort switching and cohort-specific spread graphs. The app now loads the combined default without a data selector; archive integrity and cohort isolation remain tested.
 
 Champion-pool tests cover stable group ordering for both scoring modes, unchanged scores and eligibility, role-specific persistence, reset independence, and malformed settings. Browser checks cover selecting/removing pool champions, switching roles, grouping, bans, reload persistence, and backdrop dismissal.
 

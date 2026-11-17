@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import patch
 
 from scripts.patch_data import (ROLES, FILES, combine_values, patch_span, patch_key,
-                                preserve_history, read_snapshot, rebuild, write_snapshot)
+                                preserve_history, read_snapshot, rebuild, write_snapshot, select_patch_snapshots)
 from scripts.update_datasets import update
 
 
@@ -122,6 +122,59 @@ class PatchDataTests(unittest.TestCase):
             read_snapshot(root,'16.17')
             (root/'jungle.json').write_text('{}')
             with self.assertRaisesRegex(ValueError,'checksum'):read_snapshot(root,'16.17')
+
+    def test_refresh_replaces_overlapping_capture_without_changing_frozen_archives(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary)
+            c,p,_=snapshot('16.22',1000,100,-4,.4)
+            write_snapshot(root/'patches'/'16.22',c,p,kind='patch')
+            original={str(path):path.read_bytes() for path in root.rglob('*.json')}
+            c,p,_=snapshot('16.22',3000,900,2,.6)
+            c['asOf']='2026-11-17T10:00:00+00:00'
+            write_snapshot(root/'patch-revisions'/'16.22'/'fresh',c,p,kind='patch')
+            rebuild(root)
+            catalog,combined,_=read_snapshot(root/'draft')
+            self.assertEqual(catalog['patches'],['16.22'])
+            self.assertEqual(catalog['components'][0]['base'],'data/patch-revisions/16.22/fresh')
+            self.assertEqual(combined['jungle']['1']['games'],3000)
+            self.assertEqual(combined['jungle']['1']['enemy']['top']['2'],[2.0,900,.6])
+            for path,raw in original.items():self.assertEqual(Path(path).read_bytes(),raw)
+            before={str(path):path.stat().st_mtime_ns for path in root.rglob('*.json')}
+            rebuild(root)
+            self.assertEqual(before,{str(path):path.stat().st_mtime_ns for path in root.rglob('*.json')})
+            (root/'patches'/'16.22'/'jungle.json').write_text('{}')
+            with self.assertRaisesRegex(ValueError,'checksum'):select_patch_snapshots(root)
+
+    def test_refresh_latest_uses_fresh_cache_and_preserves_old_patch_files(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);c,p,_=snapshot();c['window']='30 days'
+            write_snapshot(root/'draft',c,p,kind='historical');preserve_history(root)
+            for patch_name in ('16.21','16.22'):
+                c,p,_=snapshot(patch_name)
+                write_snapshot(root/'patches'/patch_name,c,p,kind='patch')
+            original={str(path):path.read_bytes() for path in (root/'patches').rglob('*.json')}
+            def collect(cache,patch_name,output,all_roles):
+                self.assertEqual(patch_name,'16.22');self.assertTrue(all_roles)
+                self.assertFalse(cache.exists());self.assertFalse(output.exists())
+                c,p,_=snapshot(patch_name,3000);c['asOf']='2026-11-17T10:00:00+00:00'
+                write_snapshot(output,c,p,kind='patch')
+            with patch('scripts.collect_draft.collect',side_effect=collect) as download:
+                update([],root,root/'cache',refresh_latest=True)
+                self.assertEqual(download.call_count,1)
+            self.assertEqual(original,{str(path):path.read_bytes() for path in (root/'patches').rglob('*.json')})
+            self.assertEqual(read_snapshot(root/'draft')[1]['jungle']['1']['games'],4000)
+
+    def test_ambiguous_or_naive_capture_times_are_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);c,p,_=snapshot('16.22')
+            write_snapshot(root/'patches'/'16.22',c,p,kind='patch')
+            c,p,_=snapshot('16.22',3000)
+            write_snapshot(root/'patch-revisions'/'16.22'/'conflict',c,p,kind='patch')
+            with self.assertRaisesRegex(ValueError,'same timestamp'):select_patch_snapshots(root)
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);c,p,_=snapshot();c['asOf']='2026-11-17T10:00:00'
+            write_snapshot(root/'patches'/'16.17',c,p,kind='patch')
+            with self.assertRaisesRegex(ValueError,'timezone'):select_patch_snapshots(root)
 
 
 if __name__=='__main__':unittest.main()

@@ -7,6 +7,7 @@ import math
 from pathlib import Path
 import re
 import shutil
+from datetime import datetime
 
 ROLES = ('top', 'jungle', 'middle', 'bottom', 'support')
 FILES = ('catalog.json', *(role + '.json' for role in ROLES))
@@ -179,10 +180,32 @@ def combine_values(snapshots):
     return catalog, output
 
 
+def select_patch_snapshots(data_root):
+    """Verify every saved capture and select one newest capture per patch."""
+    data_root = Path(data_root)
+    candidates = [(path.parent, path.parent.name) for path in (data_root / 'patches').glob('*/snapshot.json')]
+    candidates += [(path.parent, path.parent.parent.name)
+                   for path in (data_root / 'patch-revisions').glob('*/*/snapshot.json')]
+    chosen = {}
+    for directory, patch in sorted(candidates):
+        snapshot = read_snapshot(directory, patch)
+        validate_scope(snapshot[0])
+        captured = datetime.fromisoformat(snapshot[0]['asOf'])
+        if captured.tzinfo is None:
+            raise ValueError('Patch capture time must include its timezone.')
+        previous = chosen.get(patch)
+        if previous and captured == previous[0] and snapshot[2] != previous[2][2]:
+            raise ValueError('Conflicting patch captures have the same timestamp.')
+        if previous is None or captured > previous[0]:
+            chosen[patch] = (captured, directory, snapshot)
+    return [(chosen[patch][1], chosen[patch][2]) for patch in sorted(chosen, key=patch_key)]
+
+
 def rebuild(data_root):
     """Rebuild entirely offline; all completed patch files remain untouched."""
     data_root = Path(data_root)
-    snapshots = [read_snapshot(path.parent, path.parent.name) for path in (data_root / 'patches').glob('*/snapshot.json')]
+    selected = select_patch_snapshots(data_root)
+    snapshots = [snapshot for _, snapshot in selected]
     if not snapshots:
         raise ValueError('No complete patch snapshots found.')
     revision = digest(encoded(sorted((c['patch'], digest(encoded(m))) for c, _, m in snapshots)))
@@ -195,6 +218,8 @@ def rebuild(data_root):
         reusable = False
     if not reusable:
         catalog, profiles = combine_values(snapshots)
+        for component, (directory, _) in zip(catalog['components'], selected):
+            component['base'] = 'data/' + directory.relative_to(data_root).as_posix()
         manifest = write_snapshot(current, catalog, profiles, kind='combined', input_revision=revision)
     entries = [{'id': 'combined', 'label': 'Patches '+patch_span(catalog['patches']),
                 'base': 'data/draft', 'kind': 'combined', 'asOf': catalog['asOf'],

@@ -99,9 +99,17 @@ test('role corrections use profiles in the newly assigned roles and duplicate/ba
  assert.throws(()=>scoreTeamDraft(emptyDraft(),profiles,{priorGames:-1}));
 });
 
-test('real full-team synergy reproduces the independently searched 0.5% optimum',()=>{
+test('the original frozen six-patch cohort reproduces its independently searched 0.5% optimum',()=>{
  const draft=emptyDraft('jungle'),ids={top:126,jungle:76,middle:4,bottom:236,support:350};
- const profiles=Object.fromEntries(ROLES.map(role=>[role,JSON.parse(readFileSync(new URL(`../dist/data/draft/${role}.json`,import.meta.url))).profiles]));
+ const patches=['16.17','16.18','16.19','16.20','16.21','16.22'];
+ const profiles=Object.fromEntries(ROLES.map(role=>{
+  const parts=patches.map(patch=>JSON.parse(readFileSync(new URL(`../dist/data/patches/${patch}/${role}.json`,import.meta.url))).profiles[ids[role]]).filter(Boolean);
+  const ally=Object.fromEntries(ROLES.filter(other=>other!==role).map(other=>{
+   const pairs=parts.map(profile=>profile.ally[other]?.[ids[other]]).filter(Boolean),games=pairs.reduce((sum,pair)=>sum+pair[1],0);
+   return [other,{[ids[other]]:[pairs.reduce((sum,pair)=>sum+pair[0]*pair[1],0)/games,games]}];
+  }));
+  return [role,{[ids[role]]:{id:ids[role],role,wr:.5,ally,enemy:{}}}];
+ }));
  for(const role of ROLES)if(role!==draft.role)draft.allies[role]=ids[role];
  const total=scoreTeamDraft(draft,profiles,{ownChampion:ids.jungle});
  assert.equal(total.complete,true);assert.equal(total.terms.length,10);
