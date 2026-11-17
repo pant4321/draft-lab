@@ -153,12 +153,12 @@ class PatchDataTests(unittest.TestCase):
                 c,p,_=snapshot(patch_name)
                 write_snapshot(root/'patches'/patch_name,c,p,kind='patch')
             original={str(path):path.read_bytes() for path in (root/'patches').rglob('*.json')}
-            def collect(cache,patch_name,output,all_roles):
-                self.assertEqual(patch_name,'16.22');self.assertTrue(all_roles)
+            def collect(cache,patch_name,output):
+                self.assertEqual(patch_name,'16.22')
                 self.assertFalse(cache.exists());self.assertFalse(output.exists())
                 c,p,_=snapshot(patch_name,3000);c['asOf']='2026-11-17T10:00:00+00:00'
                 write_snapshot(output,c,p,kind='patch')
-            with patch('scripts.collect_draft.collect',side_effect=collect) as download:
+            with patch('scripts.update_datasets.collect_patch',side_effect=collect) as download:
                 update([],root,root/'cache',refresh_latest=True)
                 self.assertEqual(download.call_count,1)
             self.assertEqual(original,{str(path):path.read_bytes() for path in (root/'patches').rglob('*.json')})

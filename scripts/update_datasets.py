@@ -9,6 +9,12 @@ sys.path.insert(0,str(ROOT))
 from scripts.patch_data import preserve_history,rebuild,patch_key,read_snapshot,select_patch_snapshots
 
 
+def collect_patch(cache, patch, output):
+    # Offline rebuilds and their tests do not require download-only dependencies.
+    from scripts.collect_draft import collect
+    return collect(cache,patch,output,all_roles=True)
+
+
 def update(patches, data_root=ROOT/'dist/data', cache_root=ROOT/'cache-patches', *, refresh_latest=False):
     data_root,cache_root=Path(data_root),Path(cache_root)
     preserve_history(data_root)
@@ -18,17 +24,15 @@ def update(patches, data_root=ROOT/'dist/data', cache_root=ROOT/'cache-patches',
             read_snapshot(output,patch)
             print(f'Patch {patch}: verified saved files; no download',flush=True)
             continue
-        from scripts.collect_draft import collect
-        collect(cache_root/patch,patch,output,all_roles=True)
+        collect_patch(cache_root/patch,patch,output)
     if refresh_latest:
         saved=select_patch_snapshots(data_root)
         if not saved:
             raise ValueError('Collect a patch before refreshing the latest saved patch.')
         patch=saved[-1][1][0]['patch']
         capture=datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
-        from scripts.collect_draft import collect
-        collect(cache_root/'refreshes'/patch/capture,patch,
-                data_root/'patch-revisions'/patch/capture,all_roles=True)
+        collect_patch(cache_root/'refreshes'/patch/capture,patch,
+                      data_root/'patch-revisions'/patch/capture)
     result=rebuild(data_root)
     print('Combined saved patches: '+', '.join(result['datasets'][0]['patches']),flush=True)
     return result
