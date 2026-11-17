@@ -1,7 +1,7 @@
 import {ROLES,ROLE_NAMES,emptyDraft,validateDraft} from './draft-math.mjs?v=83c2e3d1ba0f';
 import {recommendationList,sortPickerChampions} from './draft-list.mjs?v=08ffed6cfc9a';
 import {roleBlindability} from './blindability.mjs?v=92f60cfcce68';
-import {inferDraftRoles,moveDraftChampion,cleanRoleOverrides} from './draft-roles.mjs';
+import {inferDraftRoles,moveDraftChampion,cleanRoleOverrides,selectDraftRole} from './draft-roles.mjs?v=ae75d9f318bc';
 import {mergeClientSnapshot,combineRoleHints} from './draft-sync.mjs';
 import {connectCompanion} from './companion.mjs?v=dccb644181f1';
 import {prepareCompanionSession} from './companion-session.mjs?v=68364641f994';
@@ -11,6 +11,7 @@ import {retainPopupFocus,dismissOnBackdrop} from './overlays.mjs';
 import {emptyPools,loadPools,savePools,poolSections,prioritizePool} from './champion-pool.mjs';
 import {DatasetStore} from './datasets.mjs?v=b605a99aaef9';
 import {defaultMultipliers,loadMultipliers,saveMultipliers,customMultipliers} from './draft-weights.mjs?v=0465e432aded';
+import {scoreTeamDraft} from './team-edge.mjs?v=36357097f939';
 const $=id=>document.getElementById(id),esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const signed=v=>(v>0?'+':'')+v.toFixed(2),tone=v=>v>.005?'positive':v<-.005?'negative':'zero';
 const norm=s=>s.toLowerCase().replace(/[^a-z0-9]/g,''),num=n=>n.toLocaleString('en-US');
@@ -20,7 +21,7 @@ startAnalytics();
 let catalog,champions=new Map(),draft=emptyDraft(),profiles={},ranking=null,selected=null,includeStrength=false,picker=null,revision=0;
 let autoRoles=false,roleOverrides={allies:{},enemies:{}},roleDetails={},dragging=null,dragPress=null,dragPreview=null,suppressDragClickUntil=0;
 let companion=null,clientSyncing=false,clientHints={},clientOwnChampion=null,clientSession=null,clientRoleOverride=null,queuedClientSnapshot=null;
-let pools=emptyPools(),poolRole=null;
+let pools=emptyPools(),poolRole=null,inheritedSelection=false;
 let datasets,activeDataset=null,datasetLoading=true,datasetRevision=0;
 let blindByRole={};
 let multipliers=defaultMultipliers();try{multipliers=loadMultipliers(localStorage);}catch{}
@@ -29,9 +30,26 @@ function blindInfo(id){return blindByRole[draft.role]?.[id];}
 function blindTitle(id){const b=blindInfo(id);return b?.score!=null?`Counterpick safety: ${b.score}/100 among ${b.comparedWith} ${ROLE_NAMES[draft.role].toLowerCase()} picks. ${b.counterLoss.toFixed(2)} pp weighted downside across five enemy roles. Negative matchup deltas are sample-adjusted and multiplied by opponent role pick-rate share. Rare picks count less. Base WR, positive bonuses, and ally synergy do not affect this score. Independent of draft edge.`:(b?.reason??'Not enough comparable role data.');}
 function blindCell(id){const b=blindInfo(id);return `<button type="button" data-blind="${id}" aria-haspopup="dialog" aria-expanded="false" aria-controls="blindability-popover" class="blind-score ${b?.score!=null?(b.score>=67?'blind-high':b.score<=33?'blind-low':'blind-mid'):'zero'}" aria-label="${esc(champion(id).name)} matchup WR delta spread. ${esc(blindTitle(id))}">${b?.score!=null?b.score+'<small>/100</small>':'—'}</button>`;}
 function img(id,cls='portrait'){const c=champion(id);return c?`<img class="${cls}" draggable="false" src="assets/${esc(c.key)}.png" alt="">`:'';}
-function persist(){try{localStorage.setItem(STORAGE,JSON.stringify({draft,includeStrength,autoRoles,roleOverrides}));}catch{}}
-function restore(){try{const value=JSON.parse(localStorage.getItem(STORAGE));if(value?.draft){validateDraft(value.draft);for(const id of [...Object.values(value.draft.allies),...Object.values(value.draft.enemies),...value.draft.bans])if(id!=null&&!champions.has(id))throw Error('Unknown saved champion.');draft=value.draft;includeStrength=!!value.includeStrength;autoRoles=!!value.autoRoles;roleOverrides=cleanRoleOverrides(draft,value.roleOverrides);}}catch{draft=emptyDraft();}}
+function persist(){try{localStorage.setItem(STORAGE,JSON.stringify({draft,includeStrength,autoRoles,roleOverrides,selected,inheritedSelection}));}catch{}}
+function restore(){try{const value=JSON.parse(localStorage.getItem(STORAGE));if(value?.draft){validateDraft(value.draft);for(const id of [...Object.values(value.draft.allies),...Object.values(value.draft.enemies),...value.draft.bans])if(id!=null&&!champions.has(id))throw Error('Unknown saved champion.');draft=value.draft;includeStrength=!!value.includeStrength;autoRoles=!!value.autoRoles;roleOverrides=cleanRoleOverrides(draft,value.roleOverrides);const blocked=[...Object.values(draft.allies),...Object.values(draft.enemies),...draft.bans];selected=champions.has(value.selected)&&!blocked.includes(value.selected)?value.selected:null;inheritedSelection=selected!=null&&!!value.inheritedSelection;}}catch{draft=emptyDraft();selected=null;inheritedSelection=false;}}
+function renderTeamEdge(message=null){
+ const own=clientOwnChampion??selected;
+ const blocked=[...Object.values(draft.allies),...Object.values(draft.enemies),...draft.bans];
+ const ownChampion=own!=null&&!blocked.includes(own)?own:null;
+ const loading=datasetLoading||ROLES.some(role=>(role===draft.role||draft.allies[role]!=null)&&!profiles[role]);
+ const total=message||loading?null:scoreTeamDraft(draft,profiles,{ownChampion,includeStrength,multipliers});
+ const show=(id,value)=>{const element=$(id);element.textContent=value==null?'—':signed(value);element.className=(id==='team-edge-total'?'team-edge-total ':'')+(value==null?'zero':tone(value));};
+ show('team-edge-total',total?.ready?total.score:null);
+ show('team-edge-counter',total?.ready?total.counter:null);
+ show('team-edge-synergy',total?.ready?total.synergy:null);
+ show('team-edge-base',total?.ready?total.base:null);
+ $('team-edge-base-part').hidden=!includeStrength;
+ $('team-edge-total').title=loading?'Calculating team edge':ownChampion!=null&&!clientOwnChampion?'Includes your selected champion preview':'Current allied draft';
+ $('team-edge-note').textContent=message??(total?.ready&&!total.complete?'Some selected roles are missing matchup data.':'');
+ $('team-edge-note').hidden=!$('team-edge-note').textContent;
+}
 function renderBoard(){
+ renderTeamEdge();
  for(const side of ['allies','enemies']) {
   $(side).innerHTML=ROLES.map(role=>{
    const own=side==='allies'&&role===draft.role;
@@ -51,8 +69,7 @@ function renderBoard(){
  document.querySelectorAll('[data-move]').forEach(b=>b.onclick=()=>openRoleMover(b.dataset.move,b.dataset.role));
  $('auto-roles').checked=autoRoles;$('auto-roles').disabled=clientSyncing;
  $('clear-role-pins').hidden=!Object.values(roleOverrides).some(p=>Object.keys(p).length);
- $('your-role').value=draft.role;
- for(const option of $('your-role').options)option.disabled=draft.allies[option.value]!=null;
+ document.querySelectorAll('[data-your-role]').forEach(button=>{button.setAttribute('aria-pressed',String(button.dataset.yourRole===draft.role));button.disabled=datasetLoading;});
  $('include-strength').checked=includeStrength;
  $('edit-pool').textContent='Your pool'+(pools[draft.role].length?' · '+pools[draft.role].length:'');
  $('edit-pool').disabled=!profiles[draft.role];
@@ -79,7 +96,7 @@ function renderRanking(){
  }).join('')+(!hasRows?'<div class="empty"><h3>No matching recommendations.</h3><p>Clear your search or change the draft.</p></div>':'');
  const active=ranking.shown-ranking.ignored;
  $('ranking-footer').textContent=blind?`${ranking.ranked.length} champions · Highest blindability first`:`${ranking.ranked.length} ranked · ${active}/${active} ${ranking.ignored?'active':'revealed'} pairs covered${ranking.ignored?' · '+ranking.ignored+' ignored':''}`+(ranking.insufficient.length?` · ${ranking.insufficient.length} unranked for missing data`:'');
- document.querySelectorAll('[data-candidate]').forEach(b=>b.onclick=()=>{selected=+b.dataset.candidate;renderRanking();renderBoard();renderBreakdown();});
+ document.querySelectorAll('[data-candidate]').forEach(b=>b.onclick=()=>{selected=+b.dataset.candidate;inheritedSelection=false;persist();renderRanking();renderBoard();renderBreakdown();});
 }
 function renderBreakdown(){
  const row=ranking?.ranked.find(x=>x.id===selected);
@@ -102,24 +119,26 @@ async function update(){
   if(autoRoles){const guess=inferDraftRoles(draft,champions,combineRoleHints(draft,roleOverrides,clientHints));draft=guess.draft;roleDetails=guess.details;}
   persist();renderBoard();
   if(!profiles[draft.role]){
-   ranking=null;selected=null;$('breakdown').hidden=true;$('ranking-footer').textContent='';
+   ranking=null;$('breakdown').hidden=true;$('ranking-footer').textContent='';
    $('ranking-context').textContent='Loading '+ROLE_NAMES[draft.role].toLowerCase()+' pairs…';
    $('rankings').innerHTML='<div class="empty"><h3>Loading '+ROLE_NAMES[draft.role].toLowerCase()+' matchups…</h3></div>';
-   const role=draft.role;
-   const datasetId=activeDataset.id;
-   const loaded=await datasets.role(datasetId,role);
-   if(current!==revision||activeDataset.id!==datasetId)return;
-   profiles[role]=loaded;
   }
+  const needed=ROLES.filter(role=>(role===draft.role||draft.allies[role]!=null)&&!profiles[role]);
+  const datasetId=activeDataset.id;
+  const loaded=await Promise.all(needed.map(async role=>[role,await datasets.role(datasetId,role)]));
+  if(current!==revision||activeDataset.id!==datasetId)return;
+  for(const [role,values] of loaded)profiles[role]=values;
   if(current!==revision)return;
   if(!blindByRole[draft.role]){
    blindByRole[draft.role]=roleBlindability(profiles[draft.role],catalog.champions);
   }
   ranking=recommendationList(draft,profiles[draft.role],blindByRole[draft.role],champions,{includeStrength,multipliers});
   ranking={...ranking,ranked:prioritizePool(ranking.ranked,pools[draft.role])};
-  if(!ranking.ranked.some(x=>x.id===selected))selected=ranking.mode==='blindability'?null:ranking.ranked[0]?.id??null;
+  if([...Object.values(draft.allies),...Object.values(draft.enemies),...draft.bans].includes(selected)){selected=null;inheritedSelection=false;}
+  if(!inheritedSelection&&!ranking.ranked.some(x=>x.id===selected))selected=ranking.mode==='blindability'?null:ranking.ranked[0]?.id??null;
+  persist();
   renderRanking();renderBoard();renderBreakdown();
- }catch(e){if(current===revision){$('status').textContent=e.message;$('rankings').innerHTML='<div class="empty"><h3>Data unavailable.</h3><p>Try selecting your role again.</p></div>';$('breakdown').hidden=true;}}
+ }catch(e){if(current===revision){renderTeamEdge('Team data unavailable. Try selecting your role again.');$('status').textContent=e.message;$('rankings').innerHTML='<div class="empty"><h3>Data unavailable.</h3><p>Try selecting your role again.</p></div>';$('breakdown').hidden=true;}}
 }
 function openPicker(target){
  pauseForManualEdit();hideSpread();picker=target;$('picker-title').textContent=target.ban?'Choose bans':`Choose ${target.side==='allies'?'allied':'enemy'} ${ROLE_NAMES[target.role]}`;
@@ -305,10 +324,19 @@ $('picker-search').oninput=renderPicker;
 $('add-ban').onclick=()=>openPicker({ban:true});
 $('candidate-search').oninput=renderRanking;
 $('include-strength').onchange=()=>{includeStrength=$('include-strength').checked;update();};
-$('your-role').onchange=()=>{const role=$('your-role').value;if(draft.allies[role]!=null){$('your-role').value=draft.role;return;}draft.role=role;if(clientSyncing)clientRoleOverride=role;selected=null;update();};
+document.querySelectorAll('[data-your-role]').forEach(button=>button.onclick=()=>{
+ const role=button.dataset.yourRole;if(role===draft.role||datasetLoading)return;
+ pauseForManualEdit();
+ const preview=clientOwnChampion??selected;
+ const blocked=[...Object.values(draft.allies),...Object.values(draft.enemies),...draft.bans];
+ const result=selectDraftRole(draft,role,{preview:blocked.includes(preview)?null:preview,overrides:roleOverrides});
+ draft=result.draft;roleOverrides=result.overrides;selected=result.selected;inheritedSelection=selected!=null;
+ clientOwnChampion=null;clientHints={};clientRoleOverride=role;queuedClientSnapshot=null;
+ $('candidate-search').value='';update();
+});
 $('auto-roles').onchange=()=>{autoRoles=$('auto-roles').checked;update();};
 $('clear-role-pins').onclick=()=>{roleOverrides={allies:{},enemies:{}};update();};
-$('reset').onclick=()=>{pauseForManualEdit();draft=emptyDraft(draft.role);roleOverrides={allies:{},enemies:{}};selected=null;$('candidate-search').value='';update();};
+$('reset').onclick=()=>{pauseForManualEdit();draft=emptyDraft(draft.role);roleOverrides={allies:{},enemies:{}};selected=null;inheritedSelection=false;clientOwnChampion=null;$('candidate-search').value='';update();};
 function pauseForManualEdit(){
  if(companion&&clientSyncing)companion.pause();
 }
@@ -328,6 +356,7 @@ function flushQueuedClient(){
 }
 async function loadDataset(id){
  const request=++datasetRevision;++revision;datasetLoading=true;hideSpread();
+ renderTeamEdge();
  $('edit-pool').disabled=true;$('ranking-context').textContent='Loading dataset…';
  try{
   const next=await datasets.catalog(id);if(request!==datasetRevision)return;
@@ -343,6 +372,7 @@ async function loadDataset(id){
   if(first)companion=connectCompanion(state=>{
    clientSyncing=state.syncing;
    if(!state.enabled){queuedClientSnapshot=null;clientHints={};clientOwnChampion=null;}
+   renderBoard();
    $('auto-roles').disabled=clientSyncing;
   },acceptClientSnapshot,companionSession);
  }catch(error){

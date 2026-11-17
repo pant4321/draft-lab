@@ -23,7 +23,7 @@ No build step, server, API key, or runtime data service is required. Site links,
 
 ## Dataset
 
-The default dataset combines six discrete patches, **16.17–16.22**, captured November 15, 2026. It contains 173 champions, 265 eligible champion-role profiles, and 409,996 pair cells. Profile counts are Top 56, Jungle 64, Mid 57, Bot 38, Support 50. The original November 14 rolling 30-day snapshot is preserved byte-for-byte under `dist/data/history/30d-2026-11-14/` as a historical archive. The app always uses the combined patch view. It is never mixed into the patch aggregate because its games overlap those patches.
+The default dataset combines six discrete patches, **16.17–16.22**, captured November 15, 2026. It contains 173 champions, 216 eligible champion-role profiles, and 334,318 pair cells. Profile counts are Top 47, Jungle 51, Mid 45, Bot 29, Support 44. The original November 14 rolling 30-day snapshot is preserved byte-for-byte under `dist/data/history/30d-2026-11-14/` as a historical archive. The app always uses the combined patch view. It is never mixed into the patch aggregate because its games overlap those patches.
 
 Each patch is an immutable, checksum-verified snapshot in `dist/data/patches/<patch>/`. The six source snapshots retain 2,635 source-listed champion-role profiles, including low-volume off-role records that may become useful in later combined windows. Riot's matching patch roster is recorded for each capture. Patch 16.22 is frozen as of the collection date, not claimed to be a finalized full-patch sample. Completed snapshots are reused without fetching their old URLs again. Icons use the bundled champion assets.
 
@@ -33,7 +33,7 @@ The generated combined view lives in `dist/data/draft/`. `dist/data/datasets.jso
 
 The collector reads LoLalytics' public champion build pages for enemy pairs and the same public team endpoint used by its Synergy tab for ally pairs. Every profile retains both source URLs, response hashes, and collection time. It uses published normalized Delta 2 values, rather than treating raw matchup win rates as counter or synergy strength. No Machine LoLing code, scores, data, or weights are used. The spread graph follows the user-supplied visual reference.
 
-Role tier lists identify candidate roles. A combined role profile needs at least 1,000 champion games and either 0.25% of the combined listed role pool or that champion's primary role. All 173 champions have at least one supported role. Picks entered in either draft can use any champion; the assigned slot determines the role used for pair lookup.
+Role tier lists identify candidate roles. A combined role profile needs at least 1,000 champion games and either 0.5% of the combined listed role pool or that champion's primary role. The cutoff is inclusive: a non-primary role at exactly 0.5% qualifies. All 173 champions have at least one supported role. The catalog retains lower-usage roles and their pair records for role inference and matchup lookup; the eligibility cutoff limits recommendation candidates. Picks entered in either draft can use any champion; the assigned slot determines the role used for pair lookup.
 
 ## Windows companion
 
@@ -53,7 +53,9 @@ The live site uses the **Draft Lab** web stream in the existing **jake-personal*
 
 ## Role assignment
 
-Drag a revealed champion to another role on the same team. The card lifts when pressed, then follows the mouse as an opaque card with a shadow while the source slot fades and valid targets glow. Dropping onto an occupied role swaps both champions. Escape or releasing outside a valid role cancels the move. The ↔ button offers the same move options for keyboard and touch use. Your own recommendation slot remains reserved; preview suggestions cannot be moved into the recorded draft.
+Choose your role with the five labeled role icons. All roles remain selectable, including filled allied slots. Switching to a filled role inherits its champion as your selection and places your previous preview in the role you left. Switching to an empty role also keeps your previous preview in its old slot. The committed champion is pinned there for Auto roles. The current selection stays a preview in the open recommendation slot, including when its assigned role lacks recommendation data. This state persists through reloads. Switching roles pauses live companion sync; resuming imports the latest client state again.
+
+Drag a revealed champion to another role on the same team. The card lifts when pressed, then follows the mouse as an opaque card with a shadow while the source slot fades and valid targets glow. Dropping onto an occupied role swaps both champions. Escape or releasing outside a valid role cancels the move. The ↔ button offers the same move options for keyboard and touch use. Your own recommendation slot remains reserved for the role selector and preview; it is excluded from drag targets.
 
 Enable `Auto roles` to estimate roles whenever picks change. The guesser tests every valid one-to-one team assignment and maximizes the product of each champion's role usage, derived from its saved games by role. This lets later picks resolve earlier flex picks. An unsupported role gets a one-game fallback weight, allowing unusual assignments when needed without treating missing data as a normal role. Exact ties prefer existing placements. The result is a heuristic based on the supported role snapshot, not a calibrated role probability.
 
@@ -81,9 +83,13 @@ To rebuild entirely offline after adding a complete snapshot directory, run with
 python scripts/update_datasets.py
 ```
 
-This recomputes the combined view and dataset index while leaving every old patch and the historical 30-day capture unchanged. The combined view can be regenerated if damaged; corrupt source archives fail validation. No rolling-window data is added to the combined view. Patch balance changes remain part of this historical aggregate, so it is not presented as a current-patch-only forecast. Every patch profile retains source URLs, hashes, and collection time.
+This recomputes the combined view and dataset index while leaving every old patch and the historical 30-day capture unchanged. A changed eligibility cutoff also invalidates the cached combined view, so rerunning this command reapplies the current policy without downloading snapshots. The combined view can be regenerated if damaged; corrupt source archives fail validation. No rolling-window data is added to the combined view. Patch balance changes remain part of this historical aggregate, so it is not presented as a current-patch-only forecast. Every patch profile retains source URLs, hashes, and collection time.
 
 ## Score
+
+The **Team draft edge** summary below the draft details totals the current allied composition against revealed enemies. It shows the total, Counters, Synergy, and optional Base strength, with a short message only when required data is missing. Each unique allied pair contributes synergy once, and each allied-versus-enemy pair contributes a counter term from the ally's perspective. Unknown slots add no terms. The selected recommendation fills your role as a preview marked on the board; a locked companion pick takes precedence. The summary updates with manual picks, candidate inspection, role corrections, live imports, resets, and Settings changes.
+
+With default weights, team synergy matches the sum of the team's ten unique pairs for a complete five-champion composition. A synergy pair uses the mean of its two role weights and the mean of available directional sample-adjusted effects; a saved reverse record is sufficient because synergy is shared. Counters use the opposing role's counter weight. **Include base WR** adds each allied champion's base term once. Missing active pair or base data leaves the total unavailable instead of showing a partial sum as complete. A zero-weight term is explicitly ignored. This is a cumulative draft-fit index, not a predicted win probability or a comparison with the enemy team's own synergy total.
 
 For candidate C in the user's role, look up every revealed ally and enemy by champion AND role. Enemy Delta 2 is from C's perspective. Ally Delta 2 represents the shared pair's normalized synergy. Blank slots add no term.
 
@@ -105,7 +111,7 @@ Default ranking uses draft fit only. `Include base WR` adds `100 * (candidate ov
 
 Taken and banned champions are excluded. A candidate missing any revealed pair is left unranked rather than given an invented neutral contribution. Before any ally or enemy is revealed, the website lists the selected role's champions by descending blindability, with alphabetical ties and unavailable blindability last. Bans still exclude champions. Counter, synergy, and draft edge show dashes, and `Include base WR` is disabled in this view. The user's slot stays empty until a candidate is inspected. Blindability graphs work in both views.
 
-Once any ally or enemy is revealed, candidate order switches to descending draft score with stable ID tie-breaking. Blindability never affects draft edge or this order. Clearing the draft returns to the blindability list. The user's own slot is a preview, not a recorded pick, so it is excluded from all pair inputs. An allied occupied role cannot become the user's role until that allied pick is cleared.
+Once any ally or enemy is revealed, candidate order switches to descending draft score with stable ID tie-breaking. Blindability never affects draft edge or this order. Clearing the draft returns to the blindability list. The user's own slot is a preview, not a recorded pick, so it is excluded from candidate pair inputs while remaining included in the team total. Selecting a filled role transfers that champion into the preview and commits the previous preview to its old role.
 
 The champion picker sorts by descending pick rate in the clicked slot's role, followed by alphabetical ties. The ban picker uses the user's role. Search filters that order; champions without data for that role appear after champions with role pick rates. A short label in the picker identifies the role used for popularity.
 

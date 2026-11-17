@@ -2,9 +2,38 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {ROLES,emptyDraft,validateDraft,rankDraft} from '../dist/draft-math.mjs';
-import {assignTeamRoles,inferDraftRoles,moveDraftChampion,cleanRoleOverrides} from '../dist/draft-roles.mjs';
+import {assignTeamRoles,inferDraftRoles,moveDraftChampion,cleanRoleOverrides,selectDraftRole} from '../dist/draft-roles.mjs';
 const champ=(id,roles)=>({id,roles:Object.fromEntries(Object.entries(roles).map(([role,games])=>[role,{games}]))});
 const catalog=new Map([champ(1,{top:600,middle:400}),champ(2,{top:990,middle:10}),champ(3,{jungle:1000}),champ(4,{bottom:1000}),champ(5,{support:1000})].map(c=>[c.id,c]));
+
+test('selecting an occupied role inherits its champion and commits the previous preview to its original role',()=>{
+ const draft=emptyDraft();draft.allies.middle=1;draft.allies.top=2;draft.enemies.support=5;draft.bans=[99];
+ const overrides={allies:{1:'middle',2:'top'},enemies:{5:'support'}},before=structuredClone({draft,overrides});
+ const next=selectDraftRole(draft,'middle',{preview:3,overrides});
+ assert.equal(next.draft.role,'middle');assert.equal(next.selected,1);
+ assert.equal(next.draft.allies.jungle,3);assert.equal(next.draft.allies.middle,null);
+ assert.equal(next.draft.allies.top,2);assert.deepEqual(next.draft.enemies,draft.enemies);
+ assert.deepEqual(next.draft.bans,[99]);assert.equal(next.overrides.allies[3],'jungle');
+ assert.equal(next.overrides.allies[1],undefined);assert.equal(next.overrides.allies[2],'top');
+ const inferred=inferDraftRoles(next.draft,catalog,next.overrides);
+ assert.equal(inferred.draft.allies.jungle,3);validateDraft(inferred.draft);
+ assert.deepEqual({draft,overrides},before);
+ const back=selectDraftRole(next.draft,'jungle',{preview:next.selected,overrides:next.overrides});
+ assert.equal(back.selected,3);assert.equal(back.draft.allies.middle,1);assert.equal(back.draft.allies.jungle,null);
+});
+
+test('empty-role selection preserves the old preview, while an occupied role can be inherited without a previous preview',()=>{
+ const draft=emptyDraft();draft.allies.middle=1;
+ const empty=selectDraftRole(draft,'support',{preview:3});
+ assert.equal(empty.selected,null);assert.equal(empty.draft.allies.jungle,3);assert.equal(empty.draft.role,'support');
+ const occupied=selectDraftRole(draft,'middle');
+ assert.equal(occupied.selected,1);assert.equal(occupied.draft.allies.jungle,null);
+ const same=selectDraftRole(draft,'jungle',{preview:3});
+ assert.deepEqual(same.draft,draft);assert.equal(same.selected,3);
+ for(const preview of [1,0,1.5])assert.throws(()=>selectDraftRole(draft,'support',{preview}));
+ draft.bans=[3];assert.throws(()=>selectDraftRole(draft,'support',{preview:3}));
+ assert.throws(()=>selectDraftRole(draft,'invalid'));
+});
 
 test('joint guesses resolve flex picks across the whole team, including later arrivals',()=>{
  const d=emptyDraft('support');d.enemies.top=1;

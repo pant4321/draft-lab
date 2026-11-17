@@ -11,7 +11,7 @@ from bs4 import BeautifulSoup
 
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
-from scripts.patch_data import read_snapshot,write_snapshot,write_json,patch_key
+from scripts.patch_data import CANDIDATE_FLOOR_ROLE_PERCENT,read_snapshot,write_snapshot,write_json,patch_key
 ROLES=['top','jungle','middle','bottom','support']
 def fetch(url):
     for attempt in range(3):
@@ -95,7 +95,7 @@ def collect(cache,patch='30',output=None,all_roles=False):
     for cid,c in catalog.items():
         primary=max(c['roles'],key=lambda role:c['roles'][role]['games']) if c['roles'] else None
         for role,meta in c['roles'].items():
-            if all_roles and meta['games']>0 or meta['games']>=1000 and (meta['pickRate']>=.25 or role==primary):tasks.append((cid,role))
+            if all_roles and meta['games']>0 or meta['games']>=1000 and (meta['pickRate']>=CANDIDATE_FLOOR_ROLE_PERCENT or role==primary):tasks.append((cid,role))
     print(f'Patch {patch}: planned {len(tasks)} champion-role profiles across {len(catalog)} champions',flush=True)
     def profile(task):
         cid,role=task;c=catalog[cid];path=cache/f'{cid}-{role}.json'
@@ -133,7 +133,7 @@ def collect(cache,patch='30',output=None,all_roles=False):
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:list(executor.map(asset,catalog.values()))
     metadata={'schemaVersion':2,'kind':'patch' if patch!='30' else 'historical','patch':patch,
               'source':'LoLalytics','rank':'All ranks','region':'Global','queue':'Ranked solo/duo','window':'30 days' if patch=='30' else patch,
-              'asOf':datetime.now(timezone.utc).isoformat(),'ddragonVersion':version,'candidateFloorRolePercent':.25,
+              'asOf':datetime.now(timezone.utc).isoformat(),'ddragonVersion':version,'candidateFloorRolePercent':CANDIDATE_FLOOR_ROLE_PERCENT,
               'allListedRoles':all_roles,'rosterSource':{'url':roster_url,'sha256':hashlib.sha256(roster.read_bytes()).hexdigest()},
               'tierSources':tier_sources,'champions':list(catalog.values()),'profileCounts':{r:len(v) for r,v in profiles.items()},'errors':errors}
     output.parent.mkdir(parents=True,exist_ok=True)

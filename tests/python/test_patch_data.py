@@ -26,6 +26,36 @@ def snapshot(patch_name='16.17', games=1000, pair_games=100, delta=-4, wr=.4):
 
 
 class PatchDataTests(unittest.TestCase):
+    def test_role_eligibility_uses_half_percent_boundary_and_preserves_primary_roles(self):
+        catalog,profiles,manifest=snapshot()
+        cases=[(1,4999,False),(3,5000,False),(4,5001,False),(5,1200,True),(6,999,True)]
+        cases.append((2,1000000-sum(n for _,n,_ in cases),True))
+        template=profiles['jungle']['1'];catalog['champions']=[];profiles['jungle']={}
+        for cid,n,primary in cases:
+            roles={'jungle':{'games':n,'wr':.5,'pickRate':0}}
+            if not primary:roles['middle']={'games':20000,'wr':.5,'pickRate':0}
+            catalog['champions'].append({'id':cid,'key':str(cid),'name':str(cid),'slug':str(cid),'roles':roles})
+            profiles['jungle'][str(cid)]={**copy.deepcopy(template),'id':cid,'games':n}
+        combined,eligible=combine_values([(catalog,profiles,manifest)])
+        self.assertEqual(combined['candidateFloorRolePercent'],.5)
+        self.assertEqual(set(eligible['jungle']),{'2','3','4','5'})
+        self.assertEqual(next(c for c in combined['champions'] if c['id']==3)['roles']['jungle']['pickRate'],.5)
+        self.assertIn('jungle',next(c for c in combined['champions'] if c['id']==1)['roles'])
+
+    def test_changed_eligibility_rebuilds_same_patch_inputs_then_reuses_result(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);c,p,_=snapshot();write_snapshot(root/'patches'/'16.17',c,p,kind='patch')
+            before={str(path):path.read_bytes() for path in (root/'patches').rglob('*.json')}
+            with patch('scripts.patch_data.CANDIDATE_FLOOR_ROLE_PERCENT',.25):
+                old=rebuild(root)
+            current=rebuild(root)
+            self.assertNotEqual(old['datasets'][0]['revision'],current['datasets'][0]['revision'])
+            self.assertEqual(read_snapshot(root/'draft')[0]['candidateFloorRolePercent'],.5)
+            mtimes={str(path):path.stat().st_mtime_ns for path in root.rglob('*.json')}
+            self.assertEqual(rebuild(root),current)
+            self.assertEqual(mtimes,{str(path):path.stat().st_mtime_ns for path in root.rglob('*.json')})
+            self.assertEqual(before,{str(path):path.read_bytes() for path in (root/'patches').rglob('*.json')})
+
     def test_pair_weights_use_each_pairs_games_and_keep_patch_normalization(self):
         first=snapshot('16.17',1000,100,-4,.4)
         second=snapshot('16.18',3000,900,2,.6)

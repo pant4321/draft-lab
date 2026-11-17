@@ -71,3 +71,19 @@ export function moveDraftChampion(draft,side,from,to,overrides={}) {
  pins[side][id]=to;if(displaced!=null)pins[side][displaced]=from;
  validateDraft(next);return {draft:next,overrides:cleanRoleOverrides(next,pins)};
 }
+
+export function selectDraftRole(draft,role,{preview=null,overrides={}}={}){
+ validateDraft(draft);
+ if(!ROLES.includes(role))throw Error('Choose a valid role.');
+ if(preview!=null&&(!Number.isInteger(preview)||preview<=0||[...Object.values(draft.allies),...Object.values(draft.enemies),...(draft.bans??[])].includes(preview)))throw Error('Invalid champion preview.');
+ if(role===draft.role)return {draft:structuredClone(draft),selected:preview,overrides:cleanRoleOverrides(draft,overrides)};
+ const next=structuredClone(draft),from=draft.role,inherited=next.allies[role];
+ next.allies[role]=null;next.allies[from]=preview;next.role=role;
+ const pins=cleanRoleOverrides(next,overrides);
+ if(preview!=null){
+  for(const [id,pinnedRole] of Object.entries(pins.allies))if(pinnedRole===from)delete pins.allies[id];
+  pins.allies[preview]=from;
+ }
+ validateDraft(next);
+ return {draft:next,selected:inherited,overrides:pins};
+}

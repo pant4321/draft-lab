@@ -10,6 +10,7 @@ import shutil
 
 ROLES = ('top', 'jungle', 'middle', 'bottom', 'support')
 FILES = ('catalog.json', *(role + '.json' for role in ROLES))
+CANDIDATE_FLOOR_ROLE_PERCENT = .5
 
 
 def patch_key(patch):
@@ -146,7 +147,7 @@ def combine_values(snapshots):
             cid = int(key);c = champions[cid];candidate_meta = c['roles'].get(role)
             primary = max(c['roles'], key=lambda r: c['roles'][r]['games']) if c['roles'] else None
             n = sum(profile['games'] for _, profile in parts)
-            if not candidate_meta or n < 1000 or candidate_meta['pickRate'] < .25 and role != primary:
+            if not candidate_meta or n < 1000 or candidate_meta['pickRate'] < CANDIDATE_FLOOR_ROLE_PERCENT and role != primary:
                 continue
             result = {'id': cid, 'role': role, 'games': n, 'wr': sum(p['games'] * p['wr'] for _, p in parts) / n,
                       'enemy': {}, 'ally': {}, 'componentPatches': [patch for patch, _ in parts],
@@ -171,7 +172,7 @@ def combine_values(snapshots):
     catalog = {'schemaVersion': 2, 'kind': 'combined', 'source': 'LoLalytics', 'rank': 'All ranks', 'region': 'Global',
                'queue': 'Ranked solo/duo', 'window': 'patches', 'patches': patches,
                'asOf': max(c['asOf'] for c, _, _ in ordered), 'ddragonVersion': latest['ddragonVersion'],
-               'candidateFloorRolePercent': .25, 'aggregation': 'pair-game-weighted patch-local normalized deltas',
+               'candidateFloorRolePercent': CANDIDATE_FLOOR_ROLE_PERCENT, 'aggregation': 'pair-game-weighted patch-local normalized deltas',
                'champions': sorted(champions.values(), key=lambda c: c['id']),
                'profileCounts': {role: len(values) for role, values in output.items()}, 'errors': [],
                'components': [{'patch': c['patch'], 'asOf': c['asOf'], 'snapshotSha256': digest(encoded(m))} for c, _, m in ordered]}
@@ -188,7 +189,8 @@ def rebuild(data_root):
     current = data_root / 'draft'
     try:
         catalog, _, manifest = read_snapshot(current)
-        reusable = manifest.get('kind') == 'combined' and manifest.get('inputRevision') == revision
+        reusable = (manifest.get('kind') == 'combined' and manifest.get('inputRevision') == revision
+                    and catalog.get('candidateFloorRolePercent') == CANDIDATE_FLOOR_ROLE_PERCENT)
     except (OSError, ValueError, KeyError):
         reusable = False
     if not reusable:
