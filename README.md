@@ -115,6 +115,8 @@ Once any ally or enemy is revealed, candidate order switches to descending draft
 
 The champion picker sorts by descending pick rate in the clicked slot's role, followed by alphabetical ties. The ban picker uses the user's role. Search filters that order; champions without data for that role appear after champions with role pick rates. A short label in the picker identifies the role used for popularity.
 
+Search, **Include base WR**, and **Your pool** share a compact toolbar above the recommendation list. The toolbar wraps on narrow screens to keep each control available.
+
 **Your pool** opens a role-specific champion selector. Add or remove champions with immediate browser-local saving; switching roles loads that role's separate pool. The selector offers champions with a saved profile for the selected role. Pool choices remain through draft resets and live client updates. They are stored separately from the draft, so a reset does not erase preferences. Version 0.1.6 uses the same GitHub Pages browser storage for manual and companion drafting. Older localhost preferences stay separate and are not transferred.
 
 Recommendations put **Your pool** first, followed by **Other champions**. Each section retains the existing descending blindability or draft-edge order, and numbering starts at 1 in each section. Pool membership does not change any score, blindability percentile, pair contribution, eligibility, or data-coverage rule. Banned, picked, unsupported, and unranked candidates are not promoted into the list. An empty pool keeps the original single list; a pool with no available candidates displays an empty-section message above the other champions. Search filters both sections.

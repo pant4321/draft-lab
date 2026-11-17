@@ -84,7 +84,7 @@ function renderRanking(){
  const allied=Object.values(draft.allies).filter(x=>x!=null).length,enemy=Object.values(draft.enemies).filter(x=>x!=null).length;
  $('ranking-title').textContent=blind?`Blind picks for ${ROLE_NAMES[draft.role]}`:'Best picks for this draft';
  $('ranking-context').textContent=blind?'Sorted by blindability':`${ROLE_NAMES[draft.role]} · ${allied} ${allied===1?'ally':'allies'} · ${enemy} ${enemy===1?'enemy':'enemies'} · Sorted by draft edge${customMultipliers(multipliers)?' · Custom weights':''}`;
- $('score-label').hidden=blind;$('include-strength').disabled=blind;
+ $('include-strength').disabled=blind;
  const query=norm($('candidate-search').value);
  const sections=poolSections(ranking.ranked,pools[draft.role]).map(section=>({...section,rows:section.rows
   .map((row,index)=>({...row,index:index+1})).filter(row=>norm(champion(row.id).name).includes(query))}));
