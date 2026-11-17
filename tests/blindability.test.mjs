@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {groupSpread,estimateBlindSpread,counterpickRisk,estimateCounterSafety,roleBlindability} from '../dist/blindability.mjs';
+import {groupSpread,estimateBlindSpread,counterpickRisk,estimateCounterSafety,roleBlindability,remainingCounters} from '../dist/blindability.mjs';
 import {stackMatchups,matchupSpreadGraph} from '../dist/matchup-spread.mjs';
 import {ROLES,emptyDraft,rankDraft} from '../dist/draft-math.mjs';
 const near=(a,b)=>assert.ok(Math.abs(a-b)<1e-8,`${a} != ${b}`);
@@ -50,6 +50,67 @@ test('rare hard counters contribute less than common mild counters and sub-0.5% 
  assert.equal(safety.resolved,true);
  near(safety.counterLoss,5*.001*5);
  assert.ok(safety.counterGroups.every(g=>g.rows.some(r=>r.id===1)));
+});
+
+test('remaining counters rank available threats by role share and give more weight to severe matchups',()=>{
+ const pool=[
+  {id:1,roles:{top:{pickRate:10},jungle:{pickRate:2},middle:{pickRate:5}}},
+  ...[[2,20],[3,20],[4,20],[5,20],[6,.49],[7,20],[8,20],[9,.5],[10,20],[11,10],[99,20]]
+   .map(([id,pickRate])=>({id,roles:{jungle:{pickRate}}}))
+ ];
+ const profile={id:99,enemy:{
+  top:{1:[-12,5000]},middle:{1:[-1.8,5000]},
+  jungle:{1:[-2.4,5000],2:[-.6,5000],3:[-4.8,5000],4:[-4.2,5000],5:[-12,4999],6:[-12,5000],
+   7:[-6,5000],8:[.6,5000],9:[-4.2,5000],11:[-.9,5000],99:[-6,5000]}
+ }};
+ const draft=emptyDraft();
+ draft.bans=[3];draft.allies.support=4;draft.enemies.top=7;
+ const threats=remainingCounters(profile,pool,draft);
+ assert.deepEqual(threats.map(({id,role})=>[id,role]),[[1,'middle'],[2,'jungle'],[11,'jungle']]);
+ near(threats[1].adjusted,-.5);near(threats[1].risk,.1*Math.exp(.2));
+ near(threats[2].adjusted,-.75);
+ assert.equal(threats[2].games,5000);
+ draft.enemies.middle=12;
+ assert.deepEqual(remainingCounters(profile,pool,draft).map(({id,role})=>[id,role]),[[2,'jungle'],[11,'jungle'],[1,'jungle']]);
+ draft.bans.push(11);
+ assert.deepEqual(remainingCounters(profile,pool,draft).map(({id})=>id),[2,1,9]);
+});
+
+test('the severity boost tops out so even a large downside competes on pick share',()=>{
+ const draft=emptyDraft();
+ const pool=[
+  {id:1,roles:{support:{pickRate:4.49}}},
+  {id:2,roles:{jungle:{pickRate:1.39}}},
+  {id:3,roles:{jungle:{pickRate:3.08}}},
+  {id:4,roles:{bottom:{pickRate:8.69}}},
+  {id:5,roles:{bottom:{pickRate:.55}}}
+ ];
+ const profile={id:99,enemy:{
+  support:{1:[-2.652,5000]},
+  jungle:{2:[-4.392,5000],3:[-3.06,5000]},
+  bottom:{4:[-1.116,5000],5:[-9,5000]}
+ }};
+ assert.deepEqual(remainingCounters(profile,pool,draft).map(({id})=>id),[1,2,3]);
+ draft.bans=[1,2,3];
+ const [rare]=remainingCounters(profile,pool,draft);
+ assert.equal(rare.id,5);
+ near(rare.adjusted,-7.5);
+ near(rare.risk,.0055*7.5*Math.exp(1.6));
+});
+
+test('remaining counters distinguish filled enemy roles from no qualifying matchups',()=>{
+ const draft=emptyDraft();
+ const profile=fixture(99,0);
+ assert.deepEqual(remainingCounters(profile,champions,draft),[]);
+ draft.enemies={top:1,jungle:2,middle:3,bottom:4,support:5};
+ assert.equal(remainingCounters(profile,champions,draft),null);
+});
+
+test('the imported own pick is unavailable as an enemy counter for a different preview',()=>{
+ const draft=emptyDraft();
+ const profile=fixture(99);
+ assert.ok(remainingCounters(profile,champions,draft).some(row=>row.id===1));
+ assert.deepEqual(remainingCounters(profile,champions,draft,{ownChampion:1}).map(row=>row.id),[2]);
 });
 
 test('positive bonuses, role WR, and ally synergy cannot affect counterpick safety',()=>{

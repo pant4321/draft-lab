@@ -42,6 +42,17 @@ total downside = sum(role downside across five enemy roles)
 
 Lower downside earns a higher 0–100 percentile among resolved role peers. Ties share rank; unavailable coverage or fewer than two rated candidates produces no score. Taken and banned champions remain in the comparison pool so scores stay fixed. A score of 90 indicates lower modeled downside than about 90% of rated peers, not a 90% win chance.
 
+### Remaining counters
+
+The pick breakdown lists up to three available counters while enemy roles are open. It checks enemy matchups with at least 5,000 games across the saved patches and a 0.5% role pick share. Each champion appears once in its highest-ranked open role. The list updates with picks, bans, and role corrections, including your own imported lock-in.
+
+```text
+downside = −sample-adjusted enemy effect in percentage points
+priority = historical role pick share (as a fraction) × downside × exp(0.4 × min(downside, 4))
+```
+
+The exponential multiplier gives more weight to severe matchups and tops out at about 4.95× when the downside reaches 4 pp. After that, priority grows linearly with downside. Cards display the sample-adjusted matchup effect in percentage points. Open the **?** beside **Remaining counters** for a plain-language explanation of the order and the card values.
+
 ## Spread graphs
 
 Hover, focus, or tap a blindability number to inspect role-specific matchup and synergy distributions. Portraits mark raw deltas; game counts are available in their labels. Graphs apply a 0.5% common-opponent floor, unlike the safety score, and estimate spread after subtracting binomial sampling noise. Insufficient coverage or unresolved variance hides the curve. Graph spread never enters draft edge or blindability.

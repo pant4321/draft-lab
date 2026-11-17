@@ -1,6 +1,6 @@
 import {ROLES,pairContribution} from './draft-math.mjs';
 
-// Informational only. This module never reads a draft or changes rankDraft.
+// Informational only. These helpers do not change draft rankings.
 export function groupSpread(pairs,weights,{minGames=100,minCoverage=.8}={}) {
  let availableWeight=0,coveredWeight=0;
  const rows=[];
@@ -54,6 +54,29 @@ export function counterpickRisk(pairs,weights,{minGames=100,minCoverage=.8,prior
  const normalized=rows.map(r=>({...r,weight:r.weight/coveredWeight}));
  const loss=normalized.reduce((sum,r)=>sum+r.weight*Math.max(0,-r.adjusted),0);
  return {resolved:true,loss,coverage,count:rows.length,rows:normalized};
+}
+
+export function remainingCounters(profile,champions,draft,{ownChampion=null}={}) {
+ const openRoles=ROLES.filter(role=>draft.enemies[role]==null);
+ if(!openRoles.length)return null;
+ const taken=new Set([profile.id,ownChampion,...Object.values(draft.allies),...Object.values(draft.enemies),...(draft.bans??[])]);
+ const threats=new Map();
+ for(const champion of champions){
+  if(taken.has(champion.id))continue;
+  for(const role of openRoles){
+   const pickShare=champion.roles[role]?.pickRate;
+   if(!Number.isFinite(pickShare)||pickShare<.5)continue;
+   const pair=pairContribution(profile.enemy?.[role]?.[champion.id]);
+   if(!pair||pair.games<5000||pair.adjusted>=0)continue;
+   const downside=-pair.adjusted;
+   const severityBoost=Math.exp(.4*Math.min(downside,4));
+   const risk=pickShare/100*downside*severityBoost;
+   if(risk>(threats.get(champion.id)?.risk??0)){
+    threats.set(champion.id,{id:champion.id,role,pickShare,risk,...pair});
+   }
+  }
+ }
+ return [...threats.values()].sort((a,b)=>b.risk-a.risk||a.id-b.id).slice(0,3);
 }
 
 export function estimateCounterSafety(profile,champions,options={}) {

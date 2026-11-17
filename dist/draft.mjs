@@ -1,6 +1,6 @@
 import {ROLES,ROLE_NAMES,emptyDraft,validateDraft} from './draft-math.mjs?v=83c2e3d1ba0f';
 import {recommendationList,sortPickerChampions} from './draft-list.mjs?v=08ffed6cfc9a';
-import {roleBlindability} from './blindability.mjs?v=92f60cfcce68';
+import {roleBlindability,remainingCounters} from './blindability.mjs?v=e55ee0045171';
 import {inferDraftRoles,moveDraftChampion,cleanRoleOverrides,selectDraftRole} from './draft-roles.mjs?v=ae75d9f318bc';
 import {mergeClientSnapshot,combineRoleHints} from './draft-sync.mjs';
 import {connectCompanion} from './companion.mjs?v=74107b178c02';
@@ -12,7 +12,7 @@ import {emptyPools,loadPools,savePools,poolSections,prioritizePool} from './cham
 import {DatasetStore} from './datasets.mjs?v=b605a99aaef9';
 import {defaultMultipliers,loadMultipliers,saveMultipliers,customMultipliers} from './draft-weights.mjs?v=0465e432aded';
 import {scoreTeamDraft} from './team-edge.mjs?v=36357097f939';
-import {contributionBreakdown} from './draft-breakdown.mjs?v=5651a00f5bbf';
+import {contributionBreakdown,remainingCounterBreakdown} from './draft-breakdown.mjs?v=a3ed532d2e99';
 const $=id=>document.getElementById(id),esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const signed=v=>(v>0?'+':'')+v.toFixed(2),tone=v=>v>.005?'positive':v<-.005?'negative':'zero';
 const norm=s=>s.toLowerCase().replace(/[^a-z0-9]/g,''),num=n=>n.toLocaleString('en-US');
@@ -101,13 +101,15 @@ function renderRanking(){
 function renderBreakdown(){
  const row=ranking?.ranked.find(x=>x.id===selected);
  $('breakdown').hidden=!row;if(!row)return;
- const c=champion(row.id);
+ const options={champion,portrait:id=>img(id,''),includeStrength};
+ const threats=remainingCounters(profiles[draft.role][row.id],catalog.champions,draft,{ownChampion:clientOwnChampion});
+ const counters=remainingCounterBreakdown(threats,options);
  if(ranking.mode==='blindability'){
-  const info=blindInfo(row.id);
-  $('breakdown').innerHTML=`<div class="breakdown-head"><div><h2>${esc(c.name)}</h2><p>${(100*row.wr).toFixed(1)}% WR · ${info?.counterLoss!=null?info.counterLoss.toFixed(2)+' pp weighted downside':'Downside unavailable'}</p></div><span class="blind-detail">Blindability ${blindCell(row.id)}</span></div>`;
+  const c=champion(row.id),info=blindInfo(row.id);
+  $('breakdown').innerHTML=`<div class="breakdown-head"><div><h2>${esc(c.name)}</h2><p>${(100*row.wr).toFixed(1)}% WR · ${info?.counterLoss!=null?info.counterLoss.toFixed(2)+' pp weighted downside':'Downside unavailable'}</p></div><span class="blind-detail">Blindability ${blindCell(row.id)}</span></div>${counters}`;
   return;
  }
- $('breakdown').innerHTML=contributionBreakdown(row,{champion,portrait:id=>img(id,''),includeStrength});
+ $('breakdown').innerHTML=contributionBreakdown(row,options)+counters;
 }
 async function update(){
  if(datasetLoading)return;

@@ -5,6 +5,33 @@ const roleNames={top:'Top',jungle:'Jungle',middle:'Mid',bottom:'Bot',support:'Su
 const roleOrder=Object.keys(roleNames);
 const count=games=>games>=1000?(games/1000).toFixed(1)+'k':String(games);
 
+export function remainingCounterBreakdown(threats,{champion,portrait}){
+ if(threats==null)return '';
+ const cards=threats.map(threat=>{
+  const name=escape(champion(threat.id)?.name??threat.id);
+  const sample=threat.games.toLocaleString('en-US')+' games';
+  return `<li class="remaining-counter">${portrait(threat.id)}
+   <div class="remaining-counter-pick"><strong>${name}</strong><small>${roleNames[threat.role]} · ${threat.pickShare.toFixed(1)}% pick share</small></div>
+   <span class="remaining-counter-effect negative" title="Sample-adjusted matchup effect from ${sample}">${signed(threat.adjusted)} pp</span>
+  </li>`;
+ }).join('');
+ const details=cards?`<ul class="remaining-counter-list">${cards}</ul>`:'<p>No available common counters found in the matchup data.</p>';
+ return `<section class="remaining-counters" aria-labelledby="remaining-counters-title">
+  <div class="remaining-counters-head">
+   <div class="remaining-counters-title">
+    <h3 id="remaining-counters-title">Remaining counters</h3>
+    <button type="button" class="remaining-counter-help" popovertarget="remaining-counter-method" aria-label="How remaining counters are ranked">?</button>
+    <div id="remaining-counter-method" class="remaining-counter-method" popover>
+     <p>We rank available picks by how common they are in their role, giving extra weight to tougher matchups.</p>
+     <p>Cards show sample-adjusted effects. Minimum 5,000 matchup games and 0.5% role pick share.</p>
+    </div>
+   </div>
+   ${cards?'<p>Ranked by matchup severity and role pick share</p>':''}
+  </div>
+  ${details}
+ </section>`;
+}
+
 export function contributionBreakdown(row,{champion,portrait,includeStrength=false}={}){
  const card=pair=>{
   const name=champion(pair.id)?.name??String(pair.id),hasData=Number.isFinite(pair.raw)&&pair.games>0;

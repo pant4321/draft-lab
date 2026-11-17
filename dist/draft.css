@@ -108,3 +108,37 @@ footer{font-size:10px}
 #companion-download-requirements{text-align:center;margin-top:10px;color:var(--muted);font-size:11px;line-height:1.5}
 @media(max-width:520px){#companion-download-dialog{padding:20px}#companion-download-title{font-size:20px}}
 @media(pointer:coarse){#companion-download-open{min-height:44px}#companion-download-close{min-width:44px;min-height:44px}}
+
+.remaining-counters{padding-top:12px;margin-top:12px;border-top:1px solid var(--line)}
+.remaining-counters-head{display:flex;align-items:center;flex-wrap:wrap;gap:5px 12px;margin-bottom:8px}
+.remaining-counters-title{display:flex;align-items:center;gap:6px}
+.remaining-counters-head h3{font:500 13px 'DM Sans',sans-serif;color:var(--red)}
+.remaining-counters p{color:var(--muted);font-size:11px}
+.remaining-counter-help{
+ display:grid;place-items:center;width:24px;height:24px;padding:0;
+ border:1px solid #53676a;border-radius:50%;background:#172123;color:var(--muted);font-size:12px;
+}
+.remaining-counter-help:hover,.remaining-counter-help:focus-visible{color:var(--text);border-color:var(--green)}
+.remaining-counter-method{
+ width:min(300px,calc(100vw - 32px));padding:12px 14px;
+ border:1px solid #53676a;border-radius:6px;background:#172326;color:var(--text);box-shadow:0 8px 24px #0008;
+}
+.remaining-counter-method p{font-size:12px;line-height:1.5;color:var(--text)}
+.remaining-counter-method p+p{margin-top:8px}
+@supports (position-area: block-start){
+ .remaining-counter-method{inset:auto;margin:6px 0;position-area:block-start;position-try-fallbacks:flip-block}
+}
+@supports not selector(:popover-open){
+ .remaining-counter-help,.remaining-counter-method{display:none}
+}
+.remaining-counter-list{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;list-style:none;padding:0;margin:0}
+.remaining-counter{
+ display:flex;align-items:center;gap:8px;padding:8px;
+ border:1px solid #49353a;border-radius:5px;background:#2b2428;
+}
+.remaining-counter img{width:32px;height:32px;flex-shrink:0;border-radius:4px;object-fit:cover}
+.remaining-counter-pick{flex:1;min-width:0;overflow-wrap:anywhere;font-size:12px}
+.remaining-counter-pick strong{font-weight:500}
+.remaining-counter-pick small{display:block;margin-top:2px;font-size:11px;color:var(--muted)}
+.remaining-counter-effect{font:500 15px 'Space Grotesk',sans-serif;white-space:nowrap}
+@media(max-width:730px){.remaining-counter-list{grid-template-columns:1fr}}
