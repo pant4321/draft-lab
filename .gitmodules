@@ -1,0 +1,3 @@
+[submodule "dist/data"]
+	path = dist/data
+	url = https://github.com/pant4321/draft-lab-data.git

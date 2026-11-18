@@ -1,0 +1,21 @@
+name: Check out Draft Lab data
+description: Check out the private dataset revision pinned by the site repository
+inputs:
+  ssh-key:
+    description: Read-only deploy key for the dataset repository
+    required: true
+runs:
+  using: composite
+  steps:
+    - id: pinned-data
+      shell: bash
+      run: |
+        revision=$(git rev-parse HEAD:dist/data)
+        printf 'revision=%s\n' "$revision" >> "$GITHUB_OUTPUT"
+    - uses: actions/checkout@v6
+      with:
+        repository: pant4321/draft-lab-data
+        ref: ${{ steps.pinned-data.outputs.revision }}
+        path: dist/data
+        ssh-key: ${{ inputs.ssh-key }}
+        persist-credentials: false

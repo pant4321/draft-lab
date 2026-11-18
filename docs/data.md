@@ -4,9 +4,14 @@
 
 ## Collect and rebuild
 
-Collection requires Python and `beautifulsoup4`:
+The pinned data checkout at `dist/data` is the [private dataset repository](https://github.com/pant4321/draft-lab-data). Initialize it before running the site or tests. To collect or refresh data, switch the submodule to its `main` branch and update it first.
+
+Collection requires Python and `beautifulsoup4`.
 
 ```sh
+git submodule update --init -- dist/data
+git -C dist/data switch main
+git -C dist/data pull --ff-only
 python -m pip install beautifulsoup4
 
 # Collect a missing patch, then rebuild from saved captures.
@@ -23,16 +28,19 @@ python -m unittest discover -s tests/python
 npm test
 ```
 
-Replace the example patch number with the released patch you need. Already-saved patches passed through `--patches` are verified and skipped. Refreshing uses a new cache; interrupted collections can be resumed through `scripts/collect_draft.py` with the same cache and output paths. Failed collections publish no snapshot.
+Replace the example patch number with the released patch you need. Already-saved patches passed through `--patches` are verified and skipped. Refreshing uses a new cache. Resume interrupted collections with `python dist/data/collect_draft.py` and the same cache and output paths. Failed collections publish no snapshot.
+
+Commit and push the reviewed dataset changes from `dist/data`. Then stage `dist/data` in the site repository to commit the new submodule revision. The Pages workflow verifies the saved data and stages only the combined catalog, role files, and their public index. To inspect that output locally, run `python -m scripts.build_pages build/pages` with a fresh destination.
 
 ## Files and replacement policy
 
 | Path | Purpose |
 | --- | --- |
+| `dist/data/collect_draft.py` | Private LoLalytics collector |
 | `dist/data/patches/<patch>/` | Validated patch snapshots |
 | `dist/data/patch-revisions/<patch>/<capture>/` | Staging and retained captures from explicit refreshes |
 | `dist/data/draft/` | Generated combined view |
-| `dist/data/datasets.json` | Browser dataset index and file checksums |
+| `dist/data/datasets.json` | Local dataset index and file checksums |
 | `dist/data/history/30d-2026-11-14/` | Original rolling-window archive |
 
 Keep completed historical patches and the rolling-window archive unchanged. A validated current-patch refresh may fully replace its normal patch directory; remove the superseded copy and rebuild afterward. The rebuild records the selected source directory and uses each patch exactly once, even if multiple captures remain.

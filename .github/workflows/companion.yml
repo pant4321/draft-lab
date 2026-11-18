@@ -13,6 +13,10 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v6
+      - name: Check out pinned dataset for tests
+        uses: ./.github/actions/checkout-data
+        with:
+          ssh-key: ${{ secrets.DRAFT_DATA_DEPLOY_KEY }}
       - uses: actions/setup-node@v6
         with:
           node-version: '24'

@@ -23,13 +23,14 @@ For automatic imports, run the Windows companion and leave it open with League. 
 
 These are ranking heuristics, not predicted win probabilities. Data comes from saved LoLalytics all-ranks, global ranked solo/duo aggregates. Recommendation roles need at least 1,000 games and either 0.5% role pick share or primary-role status.
 
-[Scoring reference](docs/scoring.md) · [Data collection and updates](docs/data.md) · [Current dataset](dist/data/datasets.json) · [Privacy](https://pant4321.github.io/draft-lab/privacy.html)
+[Scoring reference](docs/scoring.md) · [Data collection and updates](docs/data.md) · [Current dataset](https://pant4321.github.io/draft-lab/data/datasets.json) · [Privacy](https://pant4321.github.io/draft-lab/privacy.html)
 
 ## Run locally
 
-Requires Node and Python. No JavaScript dependencies or build step.
+Requires Node, Python, and access to the private dataset submodule. The site runs directly from the checkout.
 
 ```sh
+git submodule update --init -- dist/data
 npm run dev
 ```
 
@@ -43,4 +44,4 @@ python -m unittest discover -s companion/tests
 python -m unittest discover -s tests/python
 ```
 
-Pushes to `main` run these checks and deploy `dist/` to GitHub Pages. See [AGENTS.md](AGENTS.md) for asset-cache versioning and repository rules.
+Pushes to `main` check out the pinned dataset, run these checks, and deploy the site with the combined browser files. See [AGENTS.md](AGENTS.md) for asset-cache versioning and repository rules.

@@ -1,13 +1,15 @@
 import copy
 import json
 from pathlib import Path
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
 
+from scripts.build_pages import build_pages
 from scripts.patch_data import (ROLES, FILES, combine_values, patch_span, patch_key,
                                 preserve_history, read_snapshot, rebuild, write_snapshot, select_patch_snapshots)
-from scripts.update_datasets import update
+from scripts.update_datasets import collect_patch, update
 
 
 def snapshot(patch_name='16.17', games=1000, pair_games=100, delta=-4, wr=.4):
@@ -122,6 +124,46 @@ class PatchDataTests(unittest.TestCase):
             read_snapshot(root,'16.17')
             (root/'jungle.json').write_text('{}')
             with self.assertRaisesRegex(ValueError,'checksum'):read_snapshot(root,'16.17')
+
+    def test_pages_publishes_only_combined_browser_data(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary)
+            source=root/'dist'
+            data=source/'data'
+            catalog,profiles,_=snapshot()
+            write_snapshot(data/'history'/'30d-test',catalog,profiles,kind='historical')
+            write_snapshot(data/'patches'/'16.17',catalog,profiles,kind='patch')
+            write_snapshot(data/'patch-revisions'/'16.17'/'capture',catalog,profiles,kind='patch')
+            index=rebuild(data)
+            (source/'index.html').write_text('<main>Draft Lab</main>',encoding='utf-8')
+            (data/'.git').write_text('gitdir: ../../.git/modules/dist/data',encoding='utf-8')
+            (data/'collect_draft.py').write_text('# Private collector',encoding='utf-8')
+            published=root/'pages'
+            build_pages(source,published)
+            self.assertEqual((published/'index.html').read_bytes(),(source/'index.html').read_bytes())
+            self.assertEqual({path.name for path in (published/'data').iterdir()},{'draft','datasets.json'})
+            self.assertEqual({path.name for path in (published/'data'/'draft').iterdir()},set(FILES))
+            for name in FILES:
+                self.assertEqual((published/'data'/'draft'/name).read_bytes(),(data/'draft'/name).read_bytes())
+            public_index=json.loads((published/'data'/'datasets.json').read_bytes())
+            self.assertEqual(public_index,{**index,'datasets':[index['datasets'][0]]})
+            self.assertEqual(json.loads((data/'datasets.json').read_bytes()),index)
+
+            (data/'draft'/'jungle.json').write_text('{}',encoding='utf-8')
+            with self.assertRaisesRegex(ValueError,'checksum'):
+                build_pages(source,root/'invalid-pages')
+            self.assertFalse((root/'invalid-pages').exists())
+
+    def test_collection_runs_the_private_scraper_with_the_requested_paths(self):
+        root=Path(__file__).resolve().parents[2]
+        with patch('scripts.update_datasets.subprocess.run') as run:
+            collect_patch(Path('cache-patches/16.23'),'16.23',Path('dist/data/patches/16.23'))
+        command,options=run.call_args
+        args=command[0]
+        self.assertEqual(args[:2],[sys.executable,str(root/'dist/data/collect_draft.py')])
+        self.assertEqual(args[2:],['--cache',str(Path('cache-patches/16.23')),'--patch','16.23',
+                                  '--output',str(Path('dist/data/patches/16.23')),'--all-listed-roles'])
+        self.assertTrue(options['check'])
 
     def test_refresh_replaces_overlapping_capture_without_changing_frozen_archives(self):
         with tempfile.TemporaryDirectory() as temporary:

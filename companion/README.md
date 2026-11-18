@@ -20,7 +20,7 @@ Published v0.1.3 and earlier executables do not include this check. Download v0.
 
 ## Saved datasets
 
-The website loads the combined view listed in the [dataset index](../dist/data/datasets.json), verifying file checksums before use. Data updates are independent of executable releases. See [dataset maintenance](../docs/data.md) for collection and archive rules.
+The website loads the combined view listed in the [live dataset index](https://pant4321.github.io/draft-lab/data/datasets.json), verifying file checksums before use. Data updates are independent of executable releases. See [dataset maintenance](../docs/data.md) for collection and archive rules.
 
 ## Sync behavior
 
@@ -48,9 +48,10 @@ Version 0.1.1 was checked in a live custom champion-select session: four allied 
 
 ## Build and verify
 
-On Windows with Python 3.10+ and Node 24+:
+On Windows with Python 3.10+, Node 24+, and access to the private dataset submodule:
 
 ```
+git submodule update --init -- dist/data
 python -m venv .venv-companion
 .venv-companion\Scripts\python -m pip install -r companion/requirements-build.txt
 .venv-companion\Scripts\python companion/build.py

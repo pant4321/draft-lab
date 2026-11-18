@@ -1,6 +1,7 @@
 """Download missing patches or a fresh latest-patch capture, then rebuild offline."""
 import argparse
 from pathlib import Path
+import subprocess
 import sys
 from datetime import datetime, timezone
 
@@ -10,9 +11,11 @@ from scripts.patch_data import preserve_history,rebuild,patch_key,read_snapshot,
 
 
 def collect_patch(cache, patch, output):
-    # Offline rebuilds and their tests do not require download-only dependencies.
-    from scripts.collect_draft import collect
-    return collect(cache,patch,output,all_roles=True)
+    collector = ROOT / 'dist/data/collect_draft.py'
+    subprocess.run([
+        sys.executable, str(collector), '--cache', str(cache), '--patch', patch,
+        '--output', str(output), '--all-listed-roles',
+    ], check=True)
 
 
 def update(patches, data_root=ROOT/'dist/data', cache_root=ROOT/'cache-patches', *, refresh_latest=False):
