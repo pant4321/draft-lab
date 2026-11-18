@@ -11,7 +11,7 @@ from urllib.parse import parse_qs, urlsplit
 from urllib.request import Request, urlopen
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from companion.app import VERSION, LIVE_SITE, LIVE_ORIGIN
+from companion.app import VERSION, LIVE_SITE, LIVE_ORIGIN, LIVE_ORIGINS
 
 
 def main():
@@ -33,10 +33,13 @@ def main():
             origin = 'http://127.0.0.1:' + params['port'][0]
             token = params['companion'][0]
             headers = {'X-DraftLab-Session': token, 'Origin': LIVE_ORIGIN}
-            with urlopen(Request(origin + '/api/state', headers={'Origin': LIVE_ORIGIN, 'Access-Control-Request-Method': 'GET', 'Access-Control-Request-Headers': 'x-draftlab-session'}, method='OPTIONS')) as response:
-                assert response.status == 204 and response.headers['Access-Control-Allow-Origin'] == LIVE_ORIGIN
-            with urlopen(Request(origin + '/api/state', headers=headers)) as response:
-                assert json.load(response)['companionVersion'] == VERSION
+            for live_origin in LIVE_ORIGINS:
+                preflight = {'Origin': live_origin, 'Access-Control-Request-Method': 'GET', 'Access-Control-Request-Headers': 'x-draftlab-session'}
+                with urlopen(Request(origin + '/api/state', headers=preflight, method='OPTIONS')) as response:
+                    assert response.status == 204 and response.headers['Access-Control-Allow-Origin'] == live_origin
+                with urlopen(Request(origin + '/api/state', headers={**headers, 'Origin': live_origin})) as response:
+                    assert response.headers['Access-Control-Allow-Origin'] == live_origin
+                    assert json.load(response)['companionVersion'] == VERSION
             try:
                 urlopen(origin + '/api/state')
                 raise AssertionError('Unauthenticated client state was exposed.')

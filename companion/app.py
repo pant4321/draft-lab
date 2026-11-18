@@ -18,9 +18,10 @@ if __package__ in (None, ""):
 from companion.lcu import Poller
 from companion.updates import UpdateChecker
 
-VERSION = "0.1.6"
+VERSION = "0.1.7"
 LIVE_SITE = "https://pant4321.github.io/draft-lab/"
 LIVE_ORIGIN = "https://pant4321.github.io"
+LIVE_ORIGINS = (LIVE_ORIGIN, "https://draftedge.website")
 BRIDGE_PROTOCOL = 1
 
 
@@ -74,14 +75,15 @@ class BridgeHandler(BaseHTTPRequestHandler):
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("X-Frame-Options", "DENY")
-        if self.host_allowed() and self.headers.get("Origin") == LIVE_ORIGIN:
-            self.send_header("Access-Control-Allow-Origin", LIVE_ORIGIN)
+        origin = self.headers.get("Origin")
+        if self.host_allowed() and origin in LIVE_ORIGINS:
+            self.send_header("Access-Control-Allow-Origin", origin)
             self.send_header("Vary", "Origin")
         super().end_headers()
 
     def host_allowed(self):
         expected = urlsplit(self.server.origin).netloc
-        return self.headers.get("Host") == expected and self.headers.get("Origin", self.server.origin) in (self.server.origin, LIVE_ORIGIN)
+        return self.headers.get("Host") == expected and self.headers.get("Origin", self.server.origin) in (self.server.origin, *LIVE_ORIGINS)
 
     def authorized(self):
         return self.host_allowed() and secrets.compare_digest(self.headers.get("X-DraftLab-Session", "").encode(), self.server.session_token.encode())
@@ -90,7 +92,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
         path = urlsplit(self.path).path
         expected = {"/api/state": "GET", "/api/quit": "POST"}.get(path)
         headers = {item.strip().lower() for item in self.headers.get("Access-Control-Request-Headers", "").split(",") if item.strip()}
-        if not self.host_allowed() or self.headers.get("Origin") != LIVE_ORIGIN or not expected or self.headers.get("Access-Control-Request-Method") != expected or headers != {"x-draftlab-session"}:
+        if not self.host_allowed() or self.headers.get("Origin") not in LIVE_ORIGINS or not expected or self.headers.get("Access-Control-Request-Method") != expected or headers != {"x-draftlab-session"}:
             self.send_error(403)
             return
         self.send_response(204)

@@ -3,9 +3,9 @@ import {recommendationList,sortPickerChampions} from './draft-list.mjs?v=08ffed6
 import {roleBlindability,remainingCounters,suggestedPoolBans} from './blindability.mjs?v=4f5efea94ee1';
 import {inferDraftRoles,moveDraftChampion,cleanRoleOverrides,selectDraftRole} from './draft-roles.mjs?v=ae75d9f318bc';
 import {mergeClientSnapshot,combineRoleHints} from './draft-sync.mjs';
-import {connectCompanion} from './companion.mjs?v=74107b178c02';
-import {prepareCompanionSession} from './companion-session.mjs?v=68364641f994';
-import {startAnalytics} from './analytics.mjs?v=9d2db4435dc3';
+import {connectCompanion} from './companion.mjs?v=2080818cd4b3';
+import {prepareCompanionSession} from './companion-session.mjs?v=90ce12900bef';
+import {startAnalytics} from './analytics.mjs?v=cb37a77fa3e1';
 import {matchupSpreadGraph} from './matchup-spread.mjs';
 import {retainPopupFocus,dismissOnBackdrop} from './overlays.mjs';
 import {emptyPools,loadPools,savePools,poolSections,prioritizePool} from './champion-pool.mjs';

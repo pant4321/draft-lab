@@ -1,4 +1,4 @@
-import {forgetCompanionSession,loopbackPermission} from './companion-session.mjs?v=68364641f994';
+import {forgetCompanionSession,loopbackPermission} from './companion-session.mjs?v=90ce12900bef';
 import {dismissOnBackdrop} from './overlays.mjs';
 
 export function connectCompanion(onState,onSnapshot,session,environment=globalThis){

@@ -1,7 +1,9 @@
+import {isLiveSite} from './site-location.mjs?v=a257befba29d';
+
 export const GOOGLE_TAG='GTM-5L5WVVS2',MEASUREMENT_ID='G-6MWD8RZ6FN';
 export function analyticsPage(location,referrer=''){
  const url=new URL(location.href);
- if(url.origin!=='https://pant4321.github.io'||url.pathname!=='/draft-lab/'||url.hash.includes('companion='))return null;
+ if(!isLiveSite(url)||url.hash.includes('companion='))return null;
  let previous='';
  try{const parsed=new URL(referrer);if(parsed.protocol==='https:')previous=parsed.origin+parsed.pathname;}catch{}
  return {page_location:url.origin+url.pathname,page_referrer:previous,allow_google_signals:false,allow_ad_personalization_signals:false};

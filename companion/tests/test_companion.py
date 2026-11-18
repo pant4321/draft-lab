@@ -11,7 +11,7 @@ import unittest
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from companion.app import BridgeServer, State, VERSION, LIVE_SITE, LIVE_ORIGIN
+from companion.app import BridgeServer, State, VERSION, LIVE_SITE, LIVE_ORIGIN, LIVE_ORIGINS
 from companion.lcu import Credentials, LeagueClient, Poller, normalize_session
 
 
@@ -130,13 +130,15 @@ class BridgeTests(unittest.TestCase):
         self.assertEqual(launch.query, '')
         self.assertEqual(parse_qs(launch.fragment), {'companion': [self.server.session_token], 'port': [str(self.server.server_port)]})
         headers = {'Origin': LIVE_ORIGIN, 'Access-Control-Request-Method': 'GET', 'Access-Control-Request-Headers': 'x-draftlab-session'}
-        with self.request('/api/state', headers, 'OPTIONS') as response:
-            self.assertEqual(response.status, 204)
-            self.assertEqual(response.headers['Access-Control-Allow-Origin'], LIVE_ORIGIN)
-            self.assertEqual(response.headers['Access-Control-Allow-Methods'], 'GET')
-            self.assertEqual(response.headers['Access-Control-Allow-Headers'], 'X-DraftLab-Session')
-            self.assertIsNone(response.headers.get('Access-Control-Allow-Credentials'))
+        for origin in LIVE_ORIGINS:
+            with self.request('/api/state', {**headers, 'Origin': origin}, 'OPTIONS') as response:
+                self.assertEqual(response.status, 204)
+                self.assertEqual(response.headers['Access-Control-Allow-Origin'], origin)
+                self.assertEqual(response.headers['Access-Control-Allow-Methods'], 'GET')
+                self.assertEqual(response.headers['Access-Control-Allow-Headers'], 'X-DraftLab-Session')
+                self.assertIsNone(response.headers.get('Access-Control-Allow-Credentials'))
         for broken in ({**headers, 'Origin': 'https://evil.example'}, {**headers, 'Origin': LIVE_ORIGIN + '.evil.example'},
+                       {**headers, 'Origin': 'https://draftedge.website.evil.example'}, {**headers, 'Origin': 'http://draftedge.website'},
                        {**headers, 'Host': 'evil.example'}, {**headers, 'Access-Control-Request-Method': 'POST'},
                        {**headers, 'Access-Control-Request-Headers': 'x-draftlab-session, authorization'}):
             with self.assertRaises(HTTPError) as error:
@@ -147,9 +149,10 @@ class BridgeTests(unittest.TestCase):
 
     def test_live_origin_needs_token_and_only_exposes_read_only_client_state(self):
         headers = {'Origin': LIVE_ORIGIN, 'X-DraftLab-Session': self.server.session_token}
-        with self.request('/api/state', headers) as response:
-            self.assertEqual(json.load(response)['bridgeProtocol'], 1)
-            self.assertEqual(response.headers['Access-Control-Allow-Origin'], LIVE_ORIGIN)
+        for origin in LIVE_ORIGINS:
+            with self.request('/api/state', {**headers, 'Origin': origin}) as response:
+                self.assertEqual(json.load(response)['bridgeProtocol'], 1)
+                self.assertEqual(response.headers['Access-Control-Allow-Origin'], origin)
         for token in ('', 'wrong', 'é'):
             with self.assertRaises(HTTPError) as error:
                 self.request('/api/state', {**headers, 'X-DraftLab-Session': token})

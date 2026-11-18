@@ -1,10 +1,12 @@
+import {isLiveSite} from './site-location.mjs?v=a257befba29d';
+
 const SESSION='draftlab-companion-v1';
 export function validSession(value){
  return value&&typeof value.token==='string'&&/^[\w-]{32,128}$/.test(value.token)&&Number.isInteger(value.port)&&value.port>=1&&value.port<=65535;
 }
 export function prepareCompanionSession(environment=globalThis){
  const {location,history}=environment,url=new URL(location.href);
- const live=url.origin==='https://pant4321.github.io'&&url.pathname==='/draft-lab/';
+ const live=isLiveSite(url);
  const local=url.protocol==='http:'&&url.hostname==='127.0.0.1';
  if(!live&&!local)return null;
  const params=new URLSearchParams(url.hash.slice(1));let session=null;

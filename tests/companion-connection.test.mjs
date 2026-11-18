@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {prepareCompanionSession,loopbackPermission} from '../dist/companion-session.mjs';
 import {connectCompanion} from '../dist/companion.mjs';
-const token='a'.repeat(43),live='https://pant4321.github.io/draft-lab/';
+const token='a'.repeat(43),live='https://draftedge.website/';
 function storage(){const values=new Map();return {getItem:key=>values.get(key)??null,setItem:(key,value)=>values.set(key,value),removeItem:key=>values.delete(key)};}
 function page(href=live){
  const environment={location:{href},sessionStorage:storage(),history:{replaceState(_state,_title,url){environment.location.href=new URL(url,environment.location.href).href;}}};
@@ -14,6 +14,7 @@ test('companion launch uses only loopback, removes the token before other script
  assert.deepEqual(session,{token,port:8766,origin:'http://127.0.0.1:8766'});
  assert.equal(environment.location.href,live);
  assert.deepEqual(prepareCompanionSession(environment),session);
+ assert.deepEqual(prepareCompanionSession(page('https://pant4321.github.io/draft-lab/#companion='+token+'&port=8766')),session);
  assert.equal(prepareCompanionSession(page()),null);
  assert.equal(prepareCompanionSession(page('https://evil.example/#companion='+token+'&port=8766')),null);
  assert.equal(prepareCompanionSession(page(live+'other/#companion='+token+'&port=8766')),null);
