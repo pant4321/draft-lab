@@ -19,6 +19,14 @@ Unknown slots add nothing. Candidates missing an active pair are unranked. Picke
 
 The contribution panel shows raw deltas, adjusted weighted values, game counts, and custom multipliers. Ignored and missing terms are labeled explicitly. The selected champion remains a preview in your open role until imported as a locked pick.
 
+The recommendation list defaults to **Draft Edge** with picks revealed and **Blindability** on an empty board. Select any available metric heading to sort within each recommendation group. Select it again to reverse the order. Sample Δ starts with the narrowest ranges. Other columns start with the highest values.
+
+### Matchup sample sizes
+
+The **Sample Δ** column shows ± half the width of the Draft Edge range obtained by moving all active matchup contributions to their high or low sampling bounds together. Hover over a pick to see the separate upward and downward changes. This is a sensitivity range with base WR held fixed. A dash appears when there are no active contributions or one of them lacks the data to calculate a range. The warning next to a champion portrait marks an active matchup with fewer than 500 games.
+
+Open **Contribution sampling ranges** under a pick's breakdown for approximate 95% Wilson intervals on the same scale as the displayed matchup contributions. The calculation starts with the raw delta range for the pooled win rate, holding the expected rate fixed, then applies the normal sample adjustment and role weight to both ends. Each matchup range assumes independent games and a pooled binomial model. The overall sensitivity range allows the effects to move together and has no assigned confidence level.
+
 ## Team draft edge
 
 The team total includes the selected preview or your imported locked pick. It sums:

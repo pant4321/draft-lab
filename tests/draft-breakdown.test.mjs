@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {contributionBreakdown,remainingCounterCards,poolBanList} from '../dist/draft-breakdown.mjs';
+import {contributionBreakdown,draftSamplingOffsets,remainingCounterCards,poolBanList,samplingRange} from '../dist/draft-breakdown.mjs';
+import {emptyDraft,scoreCandidate} from '../dist/draft-math.mjs';
 
 const champion=id=>({name:id===9?'Fiddlesticks':`Champion ${id}`});
 const options={champion,portrait:id=>`<img data-champion="${id}" alt="">`};
@@ -81,4 +82,56 @@ test('base strength and custom multipliers retain their separate explanations',(
  assert.match(html,/51\.00% overall WR vs 50%/);
  assert.match(html,/\+1\.90 adjusted × 2/);
  assert.match(html,/No enemies revealed/);
+});
+
+test('sampling intervals are shifted to the raw delta scale and stay bounded for tiny samples',()=>{
+ const [low,high]=samplingRange([2,100,.5]);
+ assert.ok(Math.abs(low+7.617)<.002);
+ assert.ok(Math.abs(high-11.617)<.002);
+ const [tinyLow,tinyHigh]=samplingRange([50,1,1]);
+ assert.ok(tinyLow>-50);
+ assert.equal(tinyHigh,50);
+ assert.equal(samplingRange([2,0,.5]),null);
+ assert.equal(samplingRange([2,100]),null);
+ assert.equal(samplingRange([10,100,.04]),null);
+});
+
+test('the breakdown marks low samples and scales sampling ranges to the weighted contributions',()=>{
+ const active=pair(1,'enemies','top',{games:100,multiplier:2,weighted:4/11});
+ const ignored=pair(2,'allies','support',{multiplier:0,weighted:0,games:100});
+ const profile={enemy:{top:{1:[2,100,.5]}},ally:{support:{2:[2,100,.5]}}};
+ const html=contributionBreakdown(row([active,ignored]),{
+  ...options,profile
+ });
+ assert.equal((html.match(/Low sample/g)||[]).length,1);
+ assert.match(html,/title="100 games"/);
+ const evidence=html.match(/<details class="pair-evidence">([\s\S]+)<\/details>/)?.[1];
+ assert.match(evidence,/Contribution sampling ranges/);
+ assert.match(evidence,/Against Champion 1 · Top[\s\S]*-1\.38 to \+2\.11 pp/);
+ assert.doesNotMatch(evidence,/Champion 2/);
+});
+
+test('draft sampling offsets combine weighted matchup bounds for large and small samples',()=>{
+ const draft=emptyDraft();draft.enemies.top=1;draft.allies.support=2;
+ const profile={id:9,role:'jungle',wr:.55,enemy:{top:{1:[2,100,.55]}},ally:{support:{2:[-1,5000,.52]}}};
+ const multipliers={enemies:{top:2},allies:{support:1}};
+ const pick=scoreCandidate(profile,draft,{multipliers});
+ const result=draftSamplingOffsets(pick,profile);
+ const top=samplingRange(profile.enemy.top[1]),support=samplingRange(profile.ally.support[2]);
+ const weighted=i=>top[i]*2*100/1100+support[i]*5000/6000;
+ assert.ok(Math.abs(result.down-(pick.score-weighted(0)))<1e-12);
+ assert.ok(Math.abs(result.up-(weighted(1)-pick.score))<1e-12);
+ assert.deepEqual(draftSamplingOffsets(scoreCandidate(profile,draft,{multipliers,includeStrength:true}),profile),result);
+ const ignored=scoreCandidate(profile,draft,{multipliers:{enemies:{top:0}}});
+ assert.equal(ignored.smallSample,false);
+ const large=draftSamplingOffsets(ignored,{ally:profile.ally});
+ assert.ok(large.down>0&&large.up>0);
+});
+
+test('draft sampling offsets require coverage of every active contribution',()=>{
+ const draft=emptyDraft();draft.enemies.top=1;
+ const profile={id:9,role:'jungle',wr:.55,enemy:{top:{1:[2,500]}}};
+ assert.equal(draftSamplingOffsets(scoreCandidate(profile,draft),profile),null);
+ assert.equal(draftSamplingOffsets(scoreCandidate(profile,draft,{multipliers:{enemies:{top:0}}}),profile),null);
+ assert.equal(draftSamplingOffsets(scoreCandidate(profile,emptyDraft()),profile),null);
 });

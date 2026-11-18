@@ -14,3 +14,11 @@ export function recommendationList(draft,profiles,blindability,champions,options
 export function sortPickerChampions(champions,role) {
  return [...champions].sort((a,b)=>(b.roles[role]?.pickRate??0)-(a.roles[role]?.pickRate??0)||a.name.localeCompare(b.name));
 }
+
+export function sortRecommendationRows(rows,key,direction){
+ return [...rows].sort((a,b)=>{
+  const left=a[key],right=b[key],hasLeft=Number.isFinite(left),hasRight=Number.isFinite(right);
+  if(!hasLeft||!hasRight)return Number(hasRight)-Number(hasLeft);
+  return direction*(left-right);
+ });
+}

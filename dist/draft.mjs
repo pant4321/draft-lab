@@ -1,5 +1,5 @@
 import {ROLES,ROLE_NAMES,emptyDraft,validateDraft} from './draft-math.mjs?v=83c2e3d1ba0f';
-import {recommendationList,sortPickerChampions} from './draft-list.mjs?v=08ffed6cfc9a';
+import {recommendationList,sortPickerChampions,sortRecommendationRows} from './draft-list.mjs?v=07dea07304f1';
 import {roleBlindability,remainingCounters,suggestedPoolBans} from './blindability.mjs?v=4f5efea94ee1';
 import {inferDraftRoles,moveDraftChampion,cleanRoleOverrides,selectDraftRole} from './draft-roles.mjs?v=ae75d9f318bc';
 import {mergeClientSnapshot,combineRoleHints} from './draft-sync.mjs';
@@ -12,11 +12,12 @@ import {emptyPools,loadPools,savePools,poolSections,prioritizePool} from './cham
 import {DatasetStore} from './datasets.mjs?v=b605a99aaef9';
 import {defaultMultipliers,loadMultipliers,saveMultipliers,customMultipliers} from './draft-weights.mjs?v=0465e432aded';
 import {scoreTeamDraft} from './team-edge.mjs?v=36357097f939';
-import {contributionBreakdown,remainingCounterCards,poolBanList} from './draft-breakdown.mjs?v=bee611040a3e';
+import {contributionBreakdown,draftSamplingOffsets,remainingCounterCards,poolBanList} from './draft-breakdown.mjs?v=b55071090861';
 const $=id=>document.getElementById(id),esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const signed=v=>(v>0?'+':'')+v.toFixed(2),tone=v=>v>.005?'positive':v<-.005?'negative':'zero';
 const norm=s=>s.toLowerCase().replace(/[^a-z0-9]/g,''),num=n=>n.toLocaleString('en-US');
 const STORAGE='draftlab-draft-v1';
+const sortHeadings=[...document.querySelectorAll('.ranking-head [data-sort]')];
 const companionSession=prepareCompanionSession();
 startAnalytics();
 let catalog,champions=new Map(),draft=emptyDraft(),profiles={},ranking=null,selected=null,includeStrength=false,picker=null,revision=0;
@@ -24,6 +25,7 @@ let autoRoles=false,roleOverrides={allies:{},enemies:{}},roleDetails={},dragging
 let companion=null,clientSyncing=false,clientHints={},clientOwnChampion=null,clientSession=null,clientRoleOverride=null,queuedClientSnapshot=null;
 let pools=emptyPools(),poolRole=null,inheritedSelection=false,poolBanMarkup='';
 let datasets,activeDataset=null,datasetLoading=true,datasetRevision=0;
+let rankingSort=null;
 let blindByRole={};
 let multipliers=defaultMultipliers();try{multipliers=loadMultipliers(localStorage);}catch{}
 function champion(id){return champions.get(Number(id));}
@@ -79,22 +81,68 @@ function renderBoard(){
  $('ban-chips').innerHTML=draft.bans.map(id=>`<button class="ban-chip" data-unban="${id}" aria-label="Unban ${esc(champion(id).name)}">${img(id,'')}<span>${esc(champion(id).name)} ×</span></button>`).join('');
  document.querySelectorAll('[data-unban]').forEach(b=>b.onclick=()=>{pauseForManualEdit();draft.bans=draft.bans.filter(id=>id!==+b.dataset.unban);update();});
 }
+function renderRankingSort(rows,mode){
+ const hasValues=key=>rows.some(row=>Number.isFinite(row[key]));
+ if(rankingSort?.mode!==mode||!hasValues(rankingSort.key)){
+  rankingSort={mode,key:mode==='blindability'?'blindability':'score',direction:-1};
+ }
+ for(const heading of sortHeadings){
+  const key=heading.dataset.sort,name=heading.textContent;
+  const available=hasValues(key),active=available&&rankingSort.key===key;
+  const next=active?-rankingSort.direction:key==='sample'?1:-1;
+  const action=next===1?'Sort lowest first':'Sort highest first';
+  heading.disabled=!available;
+  heading.setAttribute('aria-pressed',String(active));
+  heading.dataset.direction=active?(rankingSort.direction===1?'ascending':'descending'):'';
+  heading.setAttribute('aria-label',active?`${name}. Sorted ${rankingSort.direction===1?'lowest':'highest'} first. ${action}.`:`${name}. ${action}.`);
+  heading.title=[available?`${action}.`:'No values to sort.',heading.dataset.help].filter(Boolean).join(' ');
+ }
+}
 function renderRanking(){
  hideSpread();
  if(!ranking)return;
  const blind=ranking.mode==='blindability';
  const allied=Object.values(draft.allies).filter(x=>x!=null).length,enemy=Object.values(draft.enemies).filter(x=>x!=null).length;
+ const rows=ranking.ranked.map(row=>{
+  const sampleRange=blind?null:draftSamplingOffsets(row,profiles[draft.role][row.id]);
+  return {...row,blindability:blindInfo(row.id)?.score,sampleRange,sample:sampleRange?(sampleRange.up+sampleRange.down)/2:null};
+ });
+ renderRankingSort(rows,ranking.mode);
+ const {key,direction}=rankingSort;
+ const order=sortHeadings.find(heading=>heading.dataset.sort===key).textContent;
+ const context=blind?'':`${ROLE_NAMES[draft.role]} · ${allied} ${allied===1?'ally':'allies'} · ${enemy} ${enemy===1?'enemy':'enemies'} · `;
  $('ranking-title').textContent=blind?`Blind picks for ${ROLE_NAMES[draft.role]}`:'Best picks for this draft';
- $('ranking-context').textContent=blind?'Sorted by blindability':`${ROLE_NAMES[draft.role]} · ${allied} ${allied===1?'ally':'allies'} · ${enemy} ${enemy===1?'enemy':'enemies'} · Sorted by draft edge${customMultipliers(multipliers)?' · Custom weights':''}`;
+ $('ranking-context').textContent=`${context}Sorted by ${order}, ${direction===1?'lowest':'highest'} first${!blind&&customMultipliers(multipliers)?' · Custom weights':''}`;
  $('include-strength').disabled=blind;
  const query=norm($('candidate-search').value);
- const sections=poolSections(ranking.ranked,pools[draft.role]).map(section=>({...section,rows:section.rows
+ const sections=poolSections(rows,pools[draft.role]).map(section=>({...section,rows:sortRecommendationRows(section.rows,key,direction)
   .map((row,index)=>({...row,index:index+1})).filter(row=>norm(champion(row.id).name).includes(query))}));
  const hasRows=sections.some(section=>section.rows.length);
  $('rankings').innerHTML=sections.map(section=>{
   if(!section.rows.length)return section.key==='pool'&&!query?'<h2 class="ranking-group">Your pool</h2><p class="pool-unavailable">None available for this draft.</p>':'';
   const heading=section.title?`<h2 class="ranking-group">${section.title} <span>${section.rows.length}</span></h2>`:'';
-  return heading+section.rows.map(row=>`<div class="pick ${row.id===selected?'selected':''}" data-pool-group="${section.key}"><button class="pick-inspect" data-candidate="${row.id}" aria-label="Inspect ${esc(champion(row.id).name)}, rank ${row.index}${section.title?' in '+section.title.toLowerCase():''}${blind?'':', draft edge '+signed(row.score)}"></button><span class="pick-lead"><span class="pick-rank">${row.index}</span>${img(row.id)}<span class="pick-name">${esc(champion(row.id).name)}<small>${(100*row.wr).toFixed(1)}% WR${row.smallSample?' · small samples':''}</small></span></span><span class="pick-pair ${blind?'zero':tone(row.counter)}">${blind?'—':signed(row.counter)}</span><span class="pick-pair ${blind?'zero':tone(row.synergy)}">${blind?'—':signed(row.synergy)}</span>${blindCell(row.id)}<span class="pick-total ${blind?'zero':tone(row.score)}">${blind?'—':signed(row.score)}</span></div>`).join('');
+  return heading+section.rows.map(row=>{
+   const range=row.sampleRange;
+   const score=blind?'—':signed(row.score);
+   const up=range?(Number((row.score+range.up).toFixed(2))-Number(score)).toFixed(2):null;
+   const down=range?(Number(score)-Number((row.score-range.down).toFixed(2))).toFixed(2):null;
+   const evidence=[
+    range?`Sampling offsets +${up} and −${down} Draft Edge points.`:'',
+    row.smallSample?'At least one matchup has fewer than 500 games.':''
+   ].filter(Boolean).join(' ');
+   const sampleDelta=range?`±${row.sample.toFixed(2)}`:'—';
+   const warning=row.smallSample?'<span class="pick-low-sample" aria-hidden="true">⚠︎</span>':'';
+   const name=esc(champion(row.id).name);
+   return `<div class="pick ${row.id===selected?'selected':''}" data-pool-group="${section.key}">
+    <button class="pick-inspect" data-candidate="${row.id}"${evidence?` title="${evidence}"`:''} aria-label="Inspect ${name}, rank ${row.index}${section.title?' in '+section.title.toLowerCase():''}${blind?'':', draft edge '+score}${evidence?'. '+evidence:''}"></button>
+    <span class="pick-lead"><span class="pick-rank">${row.index}</span><span class="pick-portrait">${img(row.id)}${warning}</span><span class="pick-name">${name}<small>${(100*row.wr).toFixed(1)}% WR</small></span></span>
+    <span class="pick-pair ${blind?'zero':tone(row.counter)}">${blind?'—':signed(row.counter)}</span>
+    <span class="pick-pair ${blind?'zero':tone(row.synergy)}">${blind?'—':signed(row.synergy)}</span>
+    ${blindCell(row.id)}
+    <span class="pick-pair pick-sampling-range ${range?'':'zero'}" aria-hidden="true">${sampleDelta}</span>
+    <span class="pick-total ${blind?'zero':tone(row.score)}">${score}</span>
+   </div>`;
+  }).join('');
  }).join('')+(!hasRows?'<div class="empty"><h3>No matching recommendations.</h3><p>Clear your search or change the draft.</p></div>':'');
  document.querySelectorAll('[data-candidate]').forEach(b=>b.onclick=()=>{selected=+b.dataset.candidate;inheritedSelection=false;persist();renderRanking();renderBoard();renderBreakdown();});
 }
@@ -133,7 +181,9 @@ function renderBreakdown(){
   $('pick-breakdown').innerHTML=`<div class="breakdown-head"><div><h2>${esc(c.name)}</h2><p>${(100*row.wr).toFixed(1)}% WR · ${info?.counterLoss!=null?info.counterLoss.toFixed(2)+' pp weighted downside':'Downside unavailable'}</p></div><span class="blind-detail">Blindability ${blindCell(row.id)}</span></div>`;
   return;
  }
- $('pick-breakdown').innerHTML=row?contributionBreakdown(row,options):'';
+ $('pick-breakdown').innerHTML=row?contributionBreakdown(row,{
+  ...options,profile:profiles[draft.role][row.id]
+ }):'';
 }
 async function update(){
  if(datasetLoading)return;
@@ -145,6 +195,7 @@ async function update(){
   if(!profiles[draft.role]){
    renderPoolBans();
    ranking=null;$('breakdown').hidden=true;
+   for(const heading of sortHeadings)heading.disabled=true;
    $('ranking-context').textContent='Loading '+ROLE_NAMES[draft.role].toLowerCase()+' pairs…';
    $('rankings').innerHTML='<div class="empty"><h3>Loading '+ROLE_NAMES[draft.role].toLowerCase()+' matchups…</h3></div>';
   }
@@ -352,6 +403,13 @@ $('champion-picker').addEventListener('cancel',()=>{picker=null;});
 $('picker-search').oninput=renderPicker;
 $('add-ban').onclick=()=>openPicker({ban:true});
 $('candidate-search').oninput=renderRanking;
+for(const heading of sortHeadings)heading.onclick=()=>{
+ const key=heading.dataset.sort;
+ const direction=rankingSort?.key===key?-rankingSort.direction:key==='sample'?1:-1;
+ rankingSort={mode:ranking.mode,key,direction};
+ renderRanking();
+ $('rankings').scrollTop=0;
+};
 $('include-strength').onchange=()=>{includeStrength=$('include-strength').checked;update();};
 document.querySelectorAll('[data-your-role]').forEach(button=>button.onclick=()=>{
  const role=button.dataset.yourRole;if(role===draft.role||datasetLoading)return;
@@ -387,6 +445,7 @@ async function loadDataset(id){
  const request=++datasetRevision;++revision;datasetLoading=true;hideSpread();
  renderTeamEdge();renderPoolBans();
  $('rank-dataset').disabled=true;
+ for(const heading of sortHeadings)heading.disabled=true;
  $('breakdown').hidden=true;
  $('rankings').innerHTML='<div class="empty"><h3>Loading dataset…</h3></div>';
  $('edit-pool').disabled=true;$('ranking-context').textContent='Loading dataset…';
@@ -396,8 +455,8 @@ async function loadDataset(id){
   for(const c of next.champions)merged.set(c.id,c);
   catalog=next;champions=merged;activeDataset=datasets.entry(id);profiles={};blindByRole={};graphCache={};ranking=null;datasetLoading=false;
   const date=new Date(catalog.asOf).toLocaleDateString('en-US',{month:'short',day:'numeric',timeZone:'America/Los_Angeles'});
-  $('snapshot').textContent=`Snapshot · ${catalog.rank} · ${activeDataset.label} · ${date}`;
-  $('data-details').textContent=`This ${catalog.rank} snapshot uses ${catalog.source} data for global ranked solo/duo. ${activeDataset.kind==='combined'?catalog.patches.length+' patches are combined by matchup game count.':'This snapshot covers a 30-day window.'} It covers ${catalog.champions.length} champions and ${Object.values(catalog.profileCounts).reduce((sum,n)=>sum+n,0)} champion-role profiles.`;
+  const snapshotRank=$('rank-dataset').hidden?[catalog.rank]:[];
+  $('snapshot').textContent=[...snapshotRank,activeDataset.label,date].join(' · ');
   const first=!loadDataset.initialized;
   if(first){restore();try{pools=loadPools(localStorage,champions);}catch{}loadDataset.initialized=true;}
   await update();

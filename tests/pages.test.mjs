@@ -3,6 +3,17 @@ import assert from 'node:assert/strict';
 import {existsSync,readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 
+test('the rank selector is the last control in the page header',()=>{
+ const html=readFileSync(new URL('../dist/index.html',import.meta.url),'utf8');
+ assert.equal([...html.matchAll(/id="rank-dataset"/g)].length,1);
+ assert.match(html,/<header>[\s\S]*?<select id="rank-dataset"[^>]*><\/select>\s*<\/div>\s*<\/header>/);
+});
+
+test('the public scoring notes describe the data as a saved snapshot',()=>{
+ const html=readFileSync(new URL('../dist/index.html',import.meta.url),'utf8');
+ assert.match(html,/<p id="data-details">Draft stats come from a saved, non-live snapshot\.<\/p>/);
+});
+
 test('entry script and stylesheet cache versions match their content for existing visitors',()=>{
  const root=new URL('../dist/',import.meta.url);
  const html=readFileSync(new URL('index.html',root),'utf8');

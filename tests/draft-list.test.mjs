@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {emptyDraft,rankDraft,ROLES} from '../dist/draft-math.mjs';
-import {recommendationList,sortPickerChampions} from '../dist/draft-list.mjs';
+import {recommendationList,sortPickerChampions,sortRecommendationRows} from '../dist/draft-list.mjs';
 import {roleBlindability} from '../dist/blindability.mjs';
 
 const champions=new Map([[1,{id:1,name:'Zed',roles:{jungle:{pickRate:20}}}],
@@ -56,4 +56,17 @@ test('picker order follows the selected role popularity, then names, including u
  assert.deepEqual(sortPickerChampions(champions.values(),'jungle').map(c=>c.id),[2,1,3,5,4]);
  assert.deepEqual(sortPickerChampions(champions.values(),'middle').map(c=>c.id),[3,2,5,4,1]);
  assert.deepEqual([...champions.keys()],[1,2,3,4,5]);
+});
+
+test('metric sorting keeps ties stable and unavailable values last in either direction',()=>{
+ const rows=[
+  {id:1,score:3,sample:1.5},
+  {id:2,score:2,sample:null},
+  {id:3,score:-1,sample:0},
+  {id:4,score:1,sample:1.5}
+ ];
+ assert.deepEqual(sortRecommendationRows(rows,'sample',1).map(row=>row.id),[3,1,4,2]);
+ assert.deepEqual(sortRecommendationRows(rows,'sample',-1).map(row=>row.id),[1,4,3,2]);
+ assert.deepEqual(sortRecommendationRows(rows,'score',-1).map(row=>row.id),[1,2,4,3]);
+ assert.deepEqual(rows.map(row=>row.id),[1,2,3,4]);
 });
