@@ -53,7 +53,7 @@ priority = historical role pick share (as a fraction) × downside × exp(0.4 × 
 
 The exponential multiplier gives more weight to severe matchups and tops out at about 4.95× when the downside reaches 4 pp. After that, priority grows linearly with downside. Cards display the sample-adjusted matchup effect in percentage points. Open the **?** beside **Remaining counters** for a plain-language explanation of the order and the card values.
 
-**Suggested bans for your pool** ranks up to five champions by the same priority, averaged across the currently available champions in your role's saved pool. Favorable matchups contribute zero, and each suggested role needs qualifying matchup data for every available pool pick. The list excludes champions in your pool and considers enemy roles that are still open. Expand a suggestion to see each pool pick's sample-adjusted matchup effect and its share of the total ban score. That share is the matchup's priority divided by the number of available pool picks.
+Open **Suggested bans for your pool** beside **+ Add ban** at any point in the draft. It ranks up to five champions by the same priority, averaged across the currently available champions in your role's saved pool. Favorable matchups contribute zero, and each suggested role needs qualifying matchup data for every available pool pick. The list excludes champions in your pool and considers enemy roles that are still open. Expand a suggestion to see each pool pick's sample-adjusted matchup effect and its share of the total ban score. That share is the matchup's priority divided by the number of available pool picks.
 
 ## Spread graphs
 

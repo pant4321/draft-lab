@@ -114,8 +114,6 @@ footer{font-size:10px}
 .remaining-counters-title{display:flex;align-items:center;gap:6px}
 .remaining-counters-head h3{font:500 13px 'DM Sans',sans-serif;color:var(--red)}
 .remaining-counters p{color:var(--muted);font-size:11px}
-.breakdown.breakdown-only-controls{padding:0;border:0;background:transparent}
-.breakdown-only-controls .remaining-counters-head{margin-bottom:0}
 #pool-bans-button{margin-inline-start:auto;color:var(--green)}
 .remaining-counter-help{
  display:grid;place-items:center;width:24px;height:24px;padding:0;

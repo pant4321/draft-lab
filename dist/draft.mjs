@@ -98,26 +98,16 @@ function renderRanking(){
  }).join('')+(!hasRows?'<div class="empty"><h3>No matching recommendations.</h3><p>Clear your search or change the draft.</p></div>':'');
  document.querySelectorAll('[data-candidate]').forEach(b=>b.onclick=()=>{selected=+b.dataset.candidate;inheritedSelection=false;persist();renderRanking();renderBoard();renderBreakdown();});
 }
-function renderBreakdown(){
- const row=ranking?.ranked.find(x=>x.id===selected);
- const roleProfiles=profiles[draft.role],pool=pools[draft.role],context={ownChampion:clientOwnChampion};
- const options={champion,portrait:id=>img(id,''),includeStrength,hasPool:pool.length>0};
- const bans=suggestedPoolBans(roleProfiles,pool,catalog.champions,draft,context);
- const threats=row?remainingCounters(roleProfiles[row.id],catalog.champions,draft,context):null;
- const showCounters=threats!==null,showBans=bans!==null;
- $('breakdown').hidden=!row&&!showBans;
- $('breakdown').classList.toggle('breakdown-only-controls',!row);
- $('counter-tools').hidden=!showCounters&&!showBans;
- $('counter-tools').classList.toggle('remaining-counters',showCounters);
- $('remaining-counters-heading').hidden=!showCounters;
- $('remaining-counters-caption').hidden=!threats?.length;
- $('pool-bans-button').hidden=!showBans;
- for(const [id,visible] of [['remaining-counter-method',showCounters],['pool-bans-popover',showBans]]){
-  const popover=$(id);
-  if(!visible&&popover.hidePopover&&popover.matches(':popover-open'))popover.hidePopover();
+function renderPoolBans(){
+ const roleProfiles=profiles[draft.role],pool=pools[draft.role];
+ const button=$('pool-bans-button'),popover=$('pool-bans-popover');
+ button.disabled=datasetLoading||!roleProfiles;
+ if(button.disabled){
+  if(popover.hidePopover&&popover.matches(':popover-open'))popover.hidePopover();
+  return;
  }
- $('remaining-counters-cards').innerHTML=remainingCounterCards(threats,options);
- const banList=showBans?poolBanList(bans,options):'';
+ const bans=suggestedPoolBans(roleProfiles,pool,catalog.champions,draft,{ownChampion:clientOwnChampion});
+ const banList=poolBanList(bans,{champion,portrait:id=>img(id,''),hasPool:pool.length>0});
  if(poolBanMarkup!==banList){
   const results=$('pool-bans-list');
   const expanded=results.querySelector('details[open]')?.dataset.poolBanId;
@@ -125,8 +115,19 @@ function renderBreakdown(){
   results.innerHTML=poolBanMarkup=banList;
   const previous=expanded&&results.querySelector(`[data-pool-ban-id="${expanded}"]`);
   if(previous)previous.open=true;
-  if(focused&&showBans)(results.querySelector(`[data-pool-ban-id="${focused}"] summary`)??$('pool-bans-button')).focus({preventScroll:true});
+  if(focused)(results.querySelector(`[data-pool-ban-id="${focused}"] summary`)??button).focus({preventScroll:true});
  }
+}
+function renderBreakdown(){
+ const row=ranking?.ranked.find(x=>x.id===selected);
+ const options={champion,portrait:id=>img(id,''),includeStrength};
+ const threats=row?remainingCounters(profiles[draft.role][row.id],catalog.champions,draft,{ownChampion:clientOwnChampion}):null;
+ $('breakdown').hidden=!row;
+ $('counter-tools').hidden=threats===null;
+ $('remaining-counters-caption').hidden=!threats?.length;
+ const method=$('remaining-counter-method');
+ if(threats===null&&method.hidePopover&&method.matches(':popover-open'))method.hidePopover();
+ $('remaining-counters-cards').innerHTML=remainingCounterCards(threats,options);
  if(row&&ranking.mode==='blindability'){
   const c=champion(row.id),info=blindInfo(row.id);
   $('pick-breakdown').innerHTML=`<div class="breakdown-head"><div><h2>${esc(c.name)}</h2><p>${(100*row.wr).toFixed(1)}% WR · ${info?.counterLoss!=null?info.counterLoss.toFixed(2)+' pp weighted downside':'Downside unavailable'}</p></div><span class="blind-detail">Blindability ${blindCell(row.id)}</span></div>`;
@@ -142,6 +143,7 @@ async function update(){
   if(autoRoles){const guess=inferDraftRoles(draft,champions,combineRoleHints(draft,roleOverrides,clientHints));draft=guess.draft;roleDetails=guess.details;}
   persist();renderBoard();
   if(!profiles[draft.role]){
+   renderPoolBans();
    ranking=null;$('breakdown').hidden=true;
    $('ranking-context').textContent='Loading '+ROLE_NAMES[draft.role].toLowerCase()+' pairs…';
    $('rankings').innerHTML='<div class="empty"><h3>Loading '+ROLE_NAMES[draft.role].toLowerCase()+' matchups…</h3></div>';
@@ -152,6 +154,7 @@ async function update(){
   if(current!==revision||activeDataset.id!==datasetId)return;
   for(const [role,values] of loaded)profiles[role]=values;
   if(current!==revision)return;
+  renderPoolBans();
   if(!blindByRole[draft.role]){
    blindByRole[draft.role]=roleBlindability(profiles[draft.role],catalog.champions);
   }
@@ -382,7 +385,7 @@ function flushQueuedClient(){
 }
 async function loadDataset(id){
  const request=++datasetRevision;++revision;datasetLoading=true;hideSpread();
- renderTeamEdge();
+ renderTeamEdge();renderPoolBans();
  $('edit-pool').disabled=true;$('ranking-context').textContent='Loading dataset…';
  try{
   const next=await datasets.catalog(id);if(request!==datasetRevision)return;

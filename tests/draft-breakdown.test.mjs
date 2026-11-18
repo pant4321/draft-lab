@@ -46,7 +46,8 @@ test('pool ban results are read-only and distinguish an empty pool from no quali
  assert.match(page,/popovertarget="remaining-counter-method" aria-label="How remaining counters are ranked"/);
  assert.match(page,/how common they are in their role, giving extra weight to tougher matchups/);
  assert.match(page,/sample-adjusted effects\. Minimum 5,000 matchup games and 0\.5% role pick share/);
- assert.match(page,/popovertarget="pool-bans-popover">Suggested bans for your pool<\/button>/);
+ const bans=page.match(/<section class="bans">([\s\S]*?)<\/section>/)?.[1];
+ assert.match(bans,/id="add-ban"[\s\S]*popovertarget="pool-bans-popover">Suggested bans for your pool<\/button>/);
 });
 
 test('contributions keep role order, exact sample sizes, sign, and separate team subtotals',()=>{
