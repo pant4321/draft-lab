@@ -41,6 +41,7 @@
 
 /* Legibility and hierarchy polish: keep recommendations visually primary. */
 :root{--muted:#9cadaa;--control-line:#364a48;--control-hover:#22322e}
+.brand{display:inline-flex;align-items:center;gap:7px;white-space:nowrap}
 .snapshot{font-size:11px}
 .teamhead span{font-size:11px}
 .slot-role{font-size:10px;letter-spacing:.8px}

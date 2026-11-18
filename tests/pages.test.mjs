@@ -34,8 +34,11 @@ test('entry assets, module imports and initial data work at the GitHub Pages pro
   assert.ok(existsSync(new URL(relative,root)),`Missing asset: ${relative}`);
   return relative;
  };
- const html=readFileSync(new URL('index.html',root),'utf8');
- for(const [,reference] of html.matchAll(/(?:href|src)="([^"]+)"/g))resolveAsset(reference);
+ for(const page of ['index.html','privacy.html']){
+  const html=readFileSync(new URL(page,root),'utf8');
+  assert.match(html,/<link rel="icon" href="favicon\.ico">/);
+  for(const [,reference] of html.matchAll(/(?:href|src)="([^"]+)"/g))resolveAsset(reference,new URL(page,base));
+ }
  const pending=['draft.mjs'],seen=new Set();
  while(pending.length){
   const file=pending.pop();if(seen.has(file))continue;seen.add(file);
