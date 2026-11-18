@@ -386,6 +386,9 @@ function flushQueuedClient(){
 async function loadDataset(id){
  const request=++datasetRevision;++revision;datasetLoading=true;hideSpread();
  renderTeamEdge();renderPoolBans();
+ $('rank-dataset').disabled=true;
+ $('breakdown').hidden=true;
+ $('rankings').innerHTML='<div class="empty"><h3>Loading dataset…</h3></div>';
  $('edit-pool').disabled=true;$('ranking-context').textContent='Loading dataset…';
  try{
   const next=await datasets.catalog(id);if(request!==datasetRevision)return;
@@ -393,8 +396,8 @@ async function loadDataset(id){
   for(const c of next.champions)merged.set(c.id,c);
   catalog=next;champions=merged;activeDataset=datasets.entry(id);profiles={};blindByRole={};graphCache={};ranking=null;datasetLoading=false;
   const date=new Date(catalog.asOf).toLocaleDateString('en-US',{month:'short',day:'numeric',timeZone:'America/Los_Angeles'});
-  $('snapshot').textContent=`Snapshot · All ranks · ${activeDataset.kind==='combined'?activeDataset.label:'30-day history'} · ${date}`;
-  $('data-details').textContent=`Draft stats come from a saved snapshot of global ranked solo/duo across all ranks. Stats refresh when a new snapshot is published. ${activeDataset.kind==='combined'?catalog.patches.length+' patches are combined by matchup game count.':'This snapshot covers a 30-day window.'} It covers ${catalog.champions.length} champions and ${Object.values(catalog.profileCounts).reduce((sum,n)=>sum+n,0)} champion-role profiles.`;
+  $('snapshot').textContent=`Snapshot · ${catalog.rank} · ${activeDataset.label} · ${date}`;
+  $('data-details').textContent=`This ${catalog.rank} snapshot uses ${catalog.source} data for global ranked solo/duo. ${activeDataset.kind==='combined'?catalog.patches.length+' patches are combined by matchup game count.':'This snapshot covers a 30-day window.'} It covers ${catalog.champions.length} champions and ${Object.values(catalog.profileCounts).reduce((sum,n)=>sum+n,0)} champion-role profiles.`;
   const first=!loadDataset.initialized;
   if(first){restore();try{pools=loadPools(localStorage,champions);}catch{}loadDataset.initialized=true;}
   await update();
@@ -409,10 +412,22 @@ async function loadDataset(id){
   datasetLoading=false;
   if(activeDataset)await update();
   $('status').textContent=error.message;
+ }finally{
+  if(request===datasetRevision){
+   $('rank-dataset').value=activeDataset?.id??datasets.defaultId;
+   $('rank-dataset').disabled=false;
+  }
  }
 }
 try{
  const response=await fetch('data/datasets.json',{cache:'no-store'});if(!response.ok)throw Error('Dataset index could not be loaded.');
  datasets=new DatasetStore(await response.json());
+ const rankSelect=$('rank-dataset');
+ for(const entry of datasets.entries.values()){
+  if(entry.kind==='combined'&&entry.rank)rankSelect.add(new Option(entry.rank,entry.id));
+ }
+ rankSelect.hidden=rankSelect.options.length<2;
+ rankSelect.value=datasets.defaultId;
+ rankSelect.onchange=()=>loadDataset(rankSelect.value);
  await loadDataset(datasets.defaultId);
 }catch(e){$('status').textContent=e.message;}

@@ -12,6 +12,9 @@ from datetime import datetime
 ROLES = ('top', 'jungle', 'middle', 'bottom', 'support')
 FILES = ('catalog.json', *(role + '.json' for role in ROLES))
 CANDIDATE_FLOOR_ROLE_PERCENT = .5
+ALL_RANKS = 'All ranks'
+EMERALD_RANK = 'Emerald+'
+EMERALD_DATASET = 'emerald-plus'
 
 
 def patch_key(patch):
@@ -109,17 +112,17 @@ def preserve_history(data_root):
     return [target]
 
 
-def validate_scope(catalog, expected_source=None):
-    expected = {'rank': 'All ranks', 'region': 'Global', 'queue': 'Ranked solo/duo'}
+def validate_scope(catalog, expected_source=None, *, rank=ALL_RANKS):
+    expected = {'rank': rank, 'region': 'Global', 'queue': 'Ranked solo/duo'}
     source = catalog.get('source')
     if (not isinstance(source, str) or not source.strip() or
             (expected_source is not None and source != expected_source) or
             any(catalog.get(key) != value for key, value in expected.items()) or catalog.get('errors')):
-        raise ValueError('Only complete, matching all-ranks global solo/duo snapshots can be combined.')
+        raise ValueError(f'Only complete, matching {rank} global solo/duo snapshots can be combined.')
     return source
 
 
-def combine_values(snapshots):
+def combine_values(snapshots, *, rank=ALL_RANKS):
     """Average patch-local published effects using each pair's own game count."""
     ordered = sorted(snapshots, key=lambda snapshot: patch_key(snapshot[0]['patch']))
     if not ordered:
@@ -131,7 +134,7 @@ def combine_values(snapshots):
     totals = {role: 0 for role in ROLES}
     source = None
     for catalog, _, _ in ordered:
-        source = validate_scope(catalog, source)
+        source = validate_scope(catalog, source, rank=rank)
         for champion in catalog['champions']:
             cid = champion['id'];champions[cid] = {k: v for k, v in champion.items() if k != 'roles'}
             for role, value in champion['roles'].items():
@@ -175,7 +178,7 @@ def combine_values(snapshots):
                                                for opponent, (delta, games, wins) in pairs.items()}
             output[role][key] = result
     latest = ordered[-1][0]
-    catalog = {'schemaVersion': 2, 'kind': 'combined', 'source': source, 'rank': 'All ranks', 'region': 'Global',
+    catalog = {'schemaVersion': 2, 'kind': 'combined', 'source': source, 'rank': rank, 'region': 'Global',
                'queue': 'Ranked solo/duo', 'window': 'patches', 'patches': patches,
                'asOf': max(c['asOf'] for c, _, _ in ordered), 'ddragonVersion': latest['ddragonVersion'],
                'candidateFloorRolePercent': CANDIDATE_FLOOR_ROLE_PERCENT, 'aggregation': 'pair-game-weighted patch-local normalized deltas',
@@ -185,7 +188,7 @@ def combine_values(snapshots):
     return catalog, output
 
 
-def select_patch_snapshots(data_root):
+def select_patch_snapshots(data_root, *, rank=ALL_RANKS):
     """Verify every saved capture and select one newest capture per patch."""
     data_root = Path(data_root)
     candidates = [(path.parent, path.parent.name) for path in (data_root / 'patches').glob('*/snapshot.json')]
@@ -195,7 +198,7 @@ def select_patch_snapshots(data_root):
     source = None
     for directory, patch in sorted(candidates):
         snapshot = read_snapshot(directory, patch)
-        source = validate_scope(snapshot[0], source)
+        source = validate_scope(snapshot[0], source, rank=rank)
         captured = datetime.fromisoformat(snapshot[0]['asOf'])
         if captured.tzinfo is None:
             raise ValueError('Patch capture time must include its timezone.')
@@ -207,30 +210,40 @@ def select_patch_snapshots(data_root):
     return [(chosen[patch][1], chosen[patch][2]) for patch in sorted(chosen, key=patch_key)]
 
 
-def rebuild(data_root):
-    """Rebuild entirely offline; all completed patch files remain untouched."""
-    data_root = Path(data_root)
-    selected = select_patch_snapshots(data_root)
+def rebuild_combined(data_root, cohort_root, selected, dataset_id, *, rank=ALL_RANKS):
     snapshots = [snapshot for _, snapshot in selected]
     if not snapshots:
         raise ValueError('No complete patch snapshots found.')
     revision = digest(encoded([(c['patch'], digest(encoded(m)), directory.relative_to(data_root).as_posix())
                                for directory, (c, _, m) in selected]))
-    current = data_root / 'draft'
+    current = cohort_root / 'draft'
     try:
         catalog, _, manifest = read_snapshot(current)
         reusable = (manifest.get('kind') == 'combined' and manifest.get('inputRevision') == revision
+                    and catalog.get('rank') == rank
                     and catalog.get('candidateFloorRolePercent') == CANDIDATE_FLOOR_ROLE_PERCENT)
     except (OSError, ValueError, KeyError):
         reusable = False
     if not reusable:
-        catalog, profiles = combine_values(snapshots)
+        catalog, profiles = combine_values(snapshots, rank=rank)
         for component, (directory, _) in zip(catalog['components'], selected):
             component['base'] = 'data/' + directory.relative_to(data_root).as_posix()
         manifest = write_snapshot(current, catalog, profiles, kind='combined', input_revision=revision)
-    entries = [{'id': 'combined', 'label': 'Patches '+patch_span(catalog['patches']),
-                'base': 'data/draft', 'kind': 'combined', 'asOf': catalog['asOf'],
-                'revision': digest(encoded(manifest)), 'files': manifest['files'], 'patches': catalog['patches']}]
+    return {'id': dataset_id, 'label': 'Patches '+patch_span(catalog['patches']), 'rank': rank,
+            'base': 'data/' + current.relative_to(data_root).as_posix(), 'kind': 'combined',
+            'asOf': catalog['asOf'], 'revision': digest(encoded(manifest)), 'files': manifest['files'],
+            'patches': catalog['patches']}
+
+
+def rebuild(data_root):
+    """Rebuild entirely offline; all completed patch files remain untouched."""
+    data_root = Path(data_root)
+    all_ranks = rebuild_combined(data_root, data_root, select_patch_snapshots(data_root), 'combined')
+    entries = [all_ranks]
+    emerald_root = data_root / EMERALD_DATASET
+    emerald = select_patch_snapshots(emerald_root, rank=EMERALD_RANK)
+    if [snapshot[0]['patch'] for _, snapshot in emerald] == all_ranks['patches']:
+        entries.append(rebuild_combined(data_root, emerald_root, emerald, EMERALD_DATASET, rank=EMERALD_RANK))
     for path in sorted((data_root / 'history').glob('*/snapshot.json')):
         old, _, old_manifest = read_snapshot(path.parent)
         entries.append({'id': path.parent.name, 'label': '30-day history', 'base': 'data/history/' + path.parent.name,

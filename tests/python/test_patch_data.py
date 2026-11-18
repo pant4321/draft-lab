@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import patch
 
 from scripts.build_pages import build_pages
-from scripts.patch_data import (ROLES, FILES, combine_values, patch_span, patch_key,
+from scripts.patch_data import (EMERALD_RANK, ROLES, FILES, combine_values, patch_span, patch_key,
                                 preserve_history, read_snapshot, rebuild, write_snapshot, select_patch_snapshots)
 from scripts.update_datasets import collect_patch, update
 
@@ -128,7 +128,35 @@ class PatchDataTests(unittest.TestCase):
             (root/'jungle.json').write_text('{}')
             with self.assertRaisesRegex(ValueError,'checksum'):read_snapshot(root,'16.17')
 
-    def test_pages_publishes_only_combined_browser_data(self):
+    def test_emerald_combines_separately_and_requires_matching_patch_coverage(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for patch_name in ('16.17', '16.18'):
+                catalog, profiles, _ = snapshot(patch_name)
+                write_snapshot(root/'patches'/patch_name, catalog, profiles, kind='patch')
+            emerald_root = root/'emerald-plus'
+            catalog, profiles, _ = snapshot('16.17', 2000, 400, 2)
+            catalog['rank'] = EMERALD_RANK
+            write_snapshot(emerald_root/'patches'/'16.17', catalog, profiles, kind='patch')
+            all_ranks = rebuild(root)['datasets'][0]
+            self.assertEqual(len(rebuild(root)['datasets']), 1)
+
+            catalog, profiles, _ = snapshot('16.18', 3000, 600, 4)
+            catalog['rank'] = EMERALD_RANK
+            write_snapshot(emerald_root/'patches'/'16.18', catalog, profiles, kind='patch')
+            index = rebuild(root)
+            self.assertEqual(index['default'], 'combined')
+            self.assertEqual(index['datasets'][0], all_ranks)
+            emerald = index['datasets'][1]
+            self.assertEqual((emerald['id'], emerald['rank']), ('emerald-plus', EMERALD_RANK))
+            self.assertEqual(emerald['patches'], all_ranks['patches'])
+            catalog, profiles, _ = read_snapshot(emerald_root/'draft')
+            self.assertEqual(catalog['rank'], EMERALD_RANK)
+            self.assertEqual(catalog['components'][0]['base'], 'data/emerald-plus/patches/16.17')
+            self.assertEqual(profiles['jungle']['1']['games'], 5000)
+            self.assertEqual(profiles['jungle']['1']['enemy']['top']['2'], [3.2, 1000, .4])
+
+    def test_pages_publishes_both_combined_datasets_and_excludes_captures(self):
         with tempfile.TemporaryDirectory() as temporary:
             root=Path(temporary)
             source=root/'dist'
@@ -137,6 +165,8 @@ class PatchDataTests(unittest.TestCase):
             write_snapshot(data/'history'/'30d-test',catalog,profiles,kind='historical')
             write_snapshot(data/'patches'/'16.17',catalog,profiles,kind='patch')
             write_snapshot(data/'patch-revisions'/'16.17'/'capture',catalog,profiles,kind='patch')
+            catalog['rank'] = EMERALD_RANK
+            write_snapshot(data/'emerald-plus'/'patches'/'16.17',catalog,profiles,kind='patch')
             index=rebuild(data)
             (source/'index.html').write_text('<main>Draft Lab</main>',encoding='utf-8')
             (data/'.git').write_text('gitdir: ../../.git/modules/dist/data',encoding='utf-8')
@@ -144,15 +174,17 @@ class PatchDataTests(unittest.TestCase):
             published=root/'pages'
             build_pages(source,published)
             self.assertEqual((published/'index.html').read_bytes(),(source/'index.html').read_bytes())
-            self.assertEqual({path.name for path in (published/'data').iterdir()},{'draft','datasets.json'})
-            self.assertEqual({path.name for path in (published/'data'/'draft').iterdir()},set(FILES))
-            for name in FILES:
-                self.assertEqual((published/'data'/'draft'/name).read_bytes(),(data/'draft'/name).read_bytes())
+            self.assertEqual({path.name for path in (published/'data').iterdir()},{'draft','emerald-plus','datasets.json'})
+            self.assertEqual({path.name for path in (published/'data'/'emerald-plus').iterdir()}, {'draft'})
+            for directory in ('draft', 'emerald-plus/draft'):
+                self.assertEqual({path.name for path in (published/'data'/directory).iterdir()},set(FILES))
+                for name in FILES:
+                    self.assertEqual((published/'data'/directory/name).read_bytes(),(data/directory/name).read_bytes())
             public_index=json.loads((published/'data'/'datasets.json').read_bytes())
-            self.assertEqual(public_index,{**index,'datasets':[index['datasets'][0]]})
+            self.assertEqual(public_index,{**index,'datasets':index['datasets'][:2]})
             self.assertEqual(json.loads((data/'datasets.json').read_bytes()),index)
 
-            (data/'draft'/'jungle.json').write_text('{}',encoding='utf-8')
+            (data/'emerald-plus'/'draft'/'jungle.json').write_text('{}',encoding='utf-8')
             with self.assertRaisesRegex(ValueError,'checksum'):
                 build_pages(source,root/'invalid-pages')
             self.assertFalse((root/'invalid-pages').exists())
@@ -167,6 +199,34 @@ class PatchDataTests(unittest.TestCase):
         self.assertEqual(args[2:],['--cache',str(Path('cache-patches/16.23')),'--patch','16.23',
                                   '--output',str(Path('dist/data/patches/16.23')),'--all-listed-roles'])
         self.assertTrue(options['check'])
+
+    def test_backfill_collects_emerald_for_saved_patches_and_reuses_existing_captures(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            catalog, profiles, _ = snapshot()
+            catalog['window'] = '30 days'
+            write_snapshot(root/'history'/'30d-test', catalog, profiles, kind='historical')
+            for patch_name in ('16.17', '16.18'):
+                catalog, profiles, _ = snapshot(patch_name)
+                write_snapshot(root/'patches'/patch_name, catalog, profiles, kind='patch')
+            emerald = root/'emerald-plus'/'patches'
+            catalog, profiles, _ = snapshot('16.17')
+            catalog['source'], catalog['rank'] = 'LoLalytics', EMERALD_RANK
+            write_snapshot(emerald/'16.17', catalog, profiles, kind='patch')
+
+            def collect(cache, patch_name, output, *, tier):
+                self.assertEqual((patch_name, tier), ('16.18', 'emerald_plus'))
+                self.assertEqual(cache, root/'cache'/'emerald-plus'/'16.18')
+                self.assertEqual(output, emerald/'16.18')
+                catalog, profiles, _ = snapshot(patch_name)
+                catalog['source'], catalog['rank'] = 'LoLalytics', EMERALD_RANK
+                write_snapshot(output, catalog, profiles, kind='patch')
+
+            with patch('scripts.update_datasets.collect_patch', side_effect=collect) as download:
+                index = update([], root, root/'cache', emerald_plus=True)
+                self.assertEqual(update([], root, root/'cache', emerald_plus=True), index)
+                self.assertEqual(download.call_count, 1)
+            self.assertEqual(index['datasets'][1]['patches'], ['16.17', '16.18'])
 
     def test_refresh_replaces_overlapping_capture_without_changing_frozen_archives(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -229,7 +289,8 @@ class PatchDataTests(unittest.TestCase):
             first=rebuild(root);before=read_snapshot(root/'draft')[1]
             canonical=root/'patches'/'16.22'
             write_snapshot(canonical,c,p,kind='patch')
-            with patch('scripts.patch_data.select_patch_snapshots',return_value=[(canonical,read_snapshot(canonical,'16.22'))]):
+            with patch('scripts.patch_data.select_patch_snapshots',
+                       side_effect=[[(canonical,read_snapshot(canonical,'16.22'))], []]):
                 second=rebuild(root)
             catalog,after,_=read_snapshot(root/'draft')
             self.assertNotEqual(first['datasets'][0]['revision'],second['datasets'][0]['revision'])

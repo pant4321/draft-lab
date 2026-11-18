@@ -43,6 +43,8 @@
 :root{--muted:#9cadaa;--control-line:#364a48;--control-hover:#22322e}
 .brand{display:inline-flex;align-items:center;gap:7px;white-space:nowrap}
 .snapshot{font-size:11px}
+#rank-dataset{min-width:0;min-height:34px;padding:7px 9px;border-color:var(--control-line);cursor:pointer}
+@media(pointer:coarse){#rank-dataset{min-height:44px}}
 .teamhead span{font-size:11px}
 .slot-role{font-size:10px;letter-spacing:.8px}
 .slot-name{font-size:13px}
