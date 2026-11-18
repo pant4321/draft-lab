@@ -114,22 +114,52 @@ footer{font-size:10px}
 .remaining-counters-title{display:flex;align-items:center;gap:6px}
 .remaining-counters-head h3{font:500 13px 'DM Sans',sans-serif;color:var(--red)}
 .remaining-counters p{color:var(--muted);font-size:11px}
+.breakdown.breakdown-only-controls{padding:0;border:0;background:transparent}
+.breakdown-only-controls .remaining-counters-head{margin-bottom:0}
+#pool-bans-button{margin-inline-start:auto;color:var(--green)}
 .remaining-counter-help{
  display:grid;place-items:center;width:24px;height:24px;padding:0;
  border:1px solid #53676a;border-radius:50%;background:#172123;color:var(--muted);font-size:12px;
 }
 .remaining-counter-help:hover,.remaining-counter-help:focus-visible{color:var(--text);border-color:var(--green)}
-.remaining-counter-method{
+.remaining-counter-method,#pool-bans-popover{
  width:min(300px,calc(100vw - 32px));padding:12px 14px;
  border:1px solid #53676a;border-radius:6px;background:#172326;color:var(--text);box-shadow:0 8px 24px #0008;
 }
-.remaining-counter-method p{font-size:12px;line-height:1.5;color:var(--text)}
+.remaining-counter-method p,#pool-bans-popover p{font-size:12px;line-height:1.5;color:var(--text)}
 .remaining-counter-method p+p{margin-top:8px}
+#pool-bans-title{color:var(--text);margin-bottom:8px}
+#pool-bans-popover{width:min(410px,calc(100vw - 32px));max-height:calc(100dvh - 24px);overflow:auto}
+#pool-bans-popover .pool-ban-note{margin-bottom:4px;font-size:11px;color:var(--muted)}
+.pool-ban-list{list-style:none;margin:0;padding:0}
+.pool-ban-list li{font-size:13px}
+.pool-ban-list li+li{border-top:1px solid var(--line)}
+.pool-ban-list img{width:32px;height:32px;flex-shrink:0;border-radius:4px}
+.pool-ban-entry{display:flex;align-items:center;gap:8px;padding:6px 2px;list-style:none;border-radius:4px;cursor:pointer}
+.pool-ban-entry::-webkit-details-marker{display:none}
+.pool-ban-entry:hover{background:var(--control-hover)}
+.pool-ban-entry:focus-visible{outline-offset:-1px}
+.pool-ban-entry::after{
+ content:'';width:6px;height:6px;flex-shrink:0;margin:0 3px 3px 1px;
+ border-right:1px solid var(--muted);border-bottom:1px solid var(--muted);transform:rotate(45deg)
+}
+.pool-ban-list details[open] .pool-ban-entry::after{transform:rotate(225deg);margin-bottom:-3px}
+.pool-ban-details{flex:1;min-width:0;overflow-wrap:anywhere}
+.pool-ban-summary{display:flex;align-items:baseline;flex-wrap:wrap;justify-content:space-between;gap:0 8px}
+.pool-ban-summary small{font-size:11px;color:var(--muted)}
+.pool-ban-impact{display:flex;flex-wrap:wrap;justify-content:space-between;gap:0 8px;font-size:11px;line-height:1.5;color:var(--muted)}
+.pool-ban-impact strong{white-space:nowrap}
+.pool-ban-table{width:100%;border-collapse:collapse;margin:2px 0 8px;font-size:11px;font-variant-numeric:tabular-nums;text-align:left}
+.pool-ban-table th,.pool-ban-table td{padding:4px 5px;border-top:1px solid var(--line);font-weight:400}
+.pool-ban-table th+th,.pool-ban-table td{text-align:right;white-space:nowrap}
+.pool-ban-table thead{color:var(--muted)}
+.pool-ban-table tfoot{color:var(--green)}
 @supports (position-area: block-start){
  .remaining-counter-method{inset:auto;margin:6px 0;position-area:block-start;position-try-fallbacks:flip-block}
+ #pool-bans-popover{inset:auto;margin:6px 0;max-height:calc(50dvh - 32px);position-area:block-end span-inline-start;position-try-fallbacks:flip-block}
 }
 @supports not selector(:popover-open){
- .remaining-counter-help,.remaining-counter-method{display:none}
+ .remaining-counter-help,.remaining-counter-method,#pool-bans-button,#pool-bans-popover{display:none}
 }
 .remaining-counter-list{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;list-style:none;padding:0;margin:0}
 .remaining-counter{
@@ -142,3 +172,4 @@ footer{font-size:10px}
 .remaining-counter-pick small{display:block;margin-top:2px;font-size:11px;color:var(--muted)}
 .remaining-counter-effect{font:500 15px 'Space Grotesk',sans-serif;white-space:nowrap}
 @media(max-width:730px){.remaining-counter-list{grid-template-columns:1fr}}
+@media(max-width:600px){#remaining-counters-caption{display:none}}

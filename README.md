@@ -9,6 +9,7 @@ A League of Legends draft assistant that ranks champions by synergy with your te
 1. Choose your role and enter revealed picks and bans.
 2. Select a recommendation to preview it. The breakdown shows contributions from revealed picks and common counters that can still be picked.
 3. Use **Your pool** to prioritize champions you play, or **Settings** to adjust role weights and automatic role guesses.
+4. Open **Suggested bans for your pool** to see up to five threats to your role's saved champions. Expand a suggestion to see how each pool pick contributes to its score.
 
 Drag champions between roles to correct assignments. Drafts, pools, and settings save in your browser.
 

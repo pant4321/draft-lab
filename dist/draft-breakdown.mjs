@@ -4,8 +4,9 @@ const tone=value=>value>.005?'positive':value<-.005?'negative':'zero';
 const roleNames={top:'Top',jungle:'Jungle',middle:'Mid',bottom:'Bot',support:'Support'};
 const roleOrder=Object.keys(roleNames);
 const count=games=>games>=1000?(games/1000).toFixed(1)+'k':String(games);
+const priority=value=>value===0?'0':value<.001?'&lt;0.001':value.toFixed(3);
 
-export function remainingCounterBreakdown(threats,{champion,portrait}){
+export function remainingCounterCards(threats,{champion,portrait}){
  if(threats==null)return '';
  const cards=threats.map(threat=>{
   const name=escape(champion(threat.id)?.name??threat.id);
@@ -15,21 +16,35 @@ export function remainingCounterBreakdown(threats,{champion,portrait}){
    <span class="remaining-counter-effect negative" title="Sample-adjusted matchup effect from ${sample}">${signed(threat.adjusted)} pp</span>
   </li>`;
  }).join('');
- const details=cards?`<ul class="remaining-counter-list">${cards}</ul>`:'<p>No available common counters found in the matchup data.</p>';
- return `<section class="remaining-counters" aria-labelledby="remaining-counters-title">
-  <div class="remaining-counters-head">
-   <div class="remaining-counters-title">
-    <h3 id="remaining-counters-title">Remaining counters</h3>
-    <button type="button" class="remaining-counter-help" popovertarget="remaining-counter-method" aria-label="How remaining counters are ranked">?</button>
-    <div id="remaining-counter-method" class="remaining-counter-method" popover>
-     <p>We rank available picks by how common they are in their role, giving extra weight to tougher matchups.</p>
-     <p>Cards show sample-adjusted effects. Minimum 5,000 matchup games and 0.5% role pick share.</p>
-    </div>
-   </div>
-   ${cards?'<p>Ranked by matchup severity and role pick share</p>':''}
-  </div>
-  ${details}
- </section>`;
+ return cards?`<ul class="remaining-counter-list">${cards}</ul>`:'<p>No available common counters found in the matchup data.</p>';
+}
+
+export function poolBanList(threats,{champion,portrait,hasPool}){
+ if(!threats?.length){
+  return hasPool?'<p>No bans to suggest for this pool.</p>':'<p>Add champions to <strong>Your pool</strong> to get suggestions.</p>';
+ }
+ const rows=threats.map(({id,role,pickShare,affected,poolSize,worst,contributions,risk})=>{
+  const opponent=escape(champion(id)?.name??id),poolPick=escape(champion(worst.id)?.name??worst.id);
+  const sample=worst.games.toLocaleString('en-US')+' games';
+  const matchups=contributions.map(matchup=>{
+   const name=escape(champion(matchup.id)?.name??matchup.id),games=matchup.games.toLocaleString('en-US');
+   return `<tr><th scope="row">${name}</th><td class="${tone(matchup.adjusted)}" title="Sample-adjusted effect from ${games} games">${signed(matchup.adjusted)} pp</td><td>${priority(matchup.priority)}</td></tr>`;
+  }).join('');
+  return `<li><details name="pool-ban-matchups" data-pool-ban-id="${id}">
+   <summary class="pool-ban-entry">${portrait(id)}<span class="pool-ban-details">
+    <span class="pool-ban-summary"><strong>${opponent}</strong><small>${roleNames[role]} · ${pickShare.toFixed(1)}% pick share</small></span>
+    <span class="pool-ban-impact"><span>Hurts ${affected} of ${poolSize} pool picks</span>
+     <span>Hardest on ${poolPick} <strong class="negative" title="Sample-adjusted effect from ${sample}">${signed(worst.adjusted)} pp</strong></span>
+    </span>
+   </span></summary>
+   <table class="pool-ban-table" aria-label="Pool matchups against ${opponent}">
+    <thead><tr><th scope="col">Pool pick</th><th scope="col">Matchup</th><th scope="col">Ban score</th></tr></thead>
+    <tbody>${matchups}</tbody>
+    <tfoot><tr><th scope="row" colspan="2">Total ban score</th><td>${priority(risk)}</td></tr></tfoot>
+   </table>
+  </details></li>`;
+ });
+ return `<p class="pool-ban-note">Pool picks count equally. Open a suggestion to see each matchup.</p><ol class="pool-ban-list">${rows.join('')}</ol>`;
 }
 
 export function contributionBreakdown(row,{champion,portrait,includeStrength=false}={}){

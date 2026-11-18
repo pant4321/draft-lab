@@ -1,6 +1,6 @@
 import {ROLES,ROLE_NAMES,emptyDraft,validateDraft} from './draft-math.mjs?v=83c2e3d1ba0f';
 import {recommendationList,sortPickerChampions} from './draft-list.mjs?v=08ffed6cfc9a';
-import {roleBlindability,remainingCounters} from './blindability.mjs?v=e55ee0045171';
+import {roleBlindability,remainingCounters,suggestedPoolBans} from './blindability.mjs?v=4f5efea94ee1';
 import {inferDraftRoles,moveDraftChampion,cleanRoleOverrides,selectDraftRole} from './draft-roles.mjs?v=ae75d9f318bc';
 import {mergeClientSnapshot,combineRoleHints} from './draft-sync.mjs';
 import {connectCompanion} from './companion.mjs?v=74107b178c02';
@@ -12,7 +12,7 @@ import {emptyPools,loadPools,savePools,poolSections,prioritizePool} from './cham
 import {DatasetStore} from './datasets.mjs?v=b605a99aaef9';
 import {defaultMultipliers,loadMultipliers,saveMultipliers,customMultipliers} from './draft-weights.mjs?v=0465e432aded';
 import {scoreTeamDraft} from './team-edge.mjs?v=36357097f939';
-import {contributionBreakdown,remainingCounterBreakdown} from './draft-breakdown.mjs?v=a3ed532d2e99';
+import {contributionBreakdown,remainingCounterCards,poolBanList} from './draft-breakdown.mjs?v=bee611040a3e';
 const $=id=>document.getElementById(id),esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const signed=v=>(v>0?'+':'')+v.toFixed(2),tone=v=>v>.005?'positive':v<-.005?'negative':'zero';
 const norm=s=>s.toLowerCase().replace(/[^a-z0-9]/g,''),num=n=>n.toLocaleString('en-US');
@@ -22,7 +22,7 @@ startAnalytics();
 let catalog,champions=new Map(),draft=emptyDraft(),profiles={},ranking=null,selected=null,includeStrength=false,picker=null,revision=0;
 let autoRoles=false,roleOverrides={allies:{},enemies:{}},roleDetails={},dragging=null,dragPress=null,dragPreview=null,suppressDragClickUntil=0;
 let companion=null,clientSyncing=false,clientHints={},clientOwnChampion=null,clientSession=null,clientRoleOverride=null,queuedClientSnapshot=null;
-let pools=emptyPools(),poolRole=null,inheritedSelection=false;
+let pools=emptyPools(),poolRole=null,inheritedSelection=false,poolBanMarkup='';
 let datasets,activeDataset=null,datasetLoading=true,datasetRevision=0;
 let blindByRole={};
 let multipliers=defaultMultipliers();try{multipliers=loadMultipliers(localStorage);}catch{}
@@ -100,16 +100,39 @@ function renderRanking(){
 }
 function renderBreakdown(){
  const row=ranking?.ranked.find(x=>x.id===selected);
- $('breakdown').hidden=!row;if(!row)return;
- const options={champion,portrait:id=>img(id,''),includeStrength};
- const threats=remainingCounters(profiles[draft.role][row.id],catalog.champions,draft,{ownChampion:clientOwnChampion});
- const counters=remainingCounterBreakdown(threats,options);
- if(ranking.mode==='blindability'){
+ const roleProfiles=profiles[draft.role],pool=pools[draft.role],context={ownChampion:clientOwnChampion};
+ const options={champion,portrait:id=>img(id,''),includeStrength,hasPool:pool.length>0};
+ const bans=suggestedPoolBans(roleProfiles,pool,catalog.champions,draft,context);
+ const threats=row?remainingCounters(roleProfiles[row.id],catalog.champions,draft,context):null;
+ const showCounters=threats!==null,showBans=bans!==null;
+ $('breakdown').hidden=!row&&!showBans;
+ $('breakdown').classList.toggle('breakdown-only-controls',!row);
+ $('counter-tools').hidden=!showCounters&&!showBans;
+ $('counter-tools').classList.toggle('remaining-counters',showCounters);
+ $('remaining-counters-heading').hidden=!showCounters;
+ $('remaining-counters-caption').hidden=!threats?.length;
+ $('pool-bans-button').hidden=!showBans;
+ for(const [id,visible] of [['remaining-counter-method',showCounters],['pool-bans-popover',showBans]]){
+  const popover=$(id);
+  if(!visible&&popover.hidePopover&&popover.matches(':popover-open'))popover.hidePopover();
+ }
+ $('remaining-counters-cards').innerHTML=remainingCounterCards(threats,options);
+ const banList=showBans?poolBanList(bans,options):'';
+ if(poolBanMarkup!==banList){
+  const results=$('pool-bans-list');
+  const expanded=results.querySelector('details[open]')?.dataset.poolBanId;
+  const focused=document.activeElement?.closest('[data-pool-ban-id]')?.dataset.poolBanId;
+  results.innerHTML=poolBanMarkup=banList;
+  const previous=expanded&&results.querySelector(`[data-pool-ban-id="${expanded}"]`);
+  if(previous)previous.open=true;
+  if(focused&&showBans)(results.querySelector(`[data-pool-ban-id="${focused}"] summary`)??$('pool-bans-button')).focus({preventScroll:true});
+ }
+ if(row&&ranking.mode==='blindability'){
   const c=champion(row.id),info=blindInfo(row.id);
-  $('breakdown').innerHTML=`<div class="breakdown-head"><div><h2>${esc(c.name)}</h2><p>${(100*row.wr).toFixed(1)}% WR · ${info?.counterLoss!=null?info.counterLoss.toFixed(2)+' pp weighted downside':'Downside unavailable'}</p></div><span class="blind-detail">Blindability ${blindCell(row.id)}</span></div>${counters}`;
+  $('pick-breakdown').innerHTML=`<div class="breakdown-head"><div><h2>${esc(c.name)}</h2><p>${(100*row.wr).toFixed(1)}% WR · ${info?.counterLoss!=null?info.counterLoss.toFixed(2)+' pp weighted downside':'Downside unavailable'}</p></div><span class="blind-detail">Blindability ${blindCell(row.id)}</span></div>`;
   return;
  }
- $('breakdown').innerHTML=contributionBreakdown(row,options)+counters;
+ $('pick-breakdown').innerHTML=row?contributionBreakdown(row,options):'';
 }
 async function update(){
  if(datasetLoading)return;

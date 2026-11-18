@@ -56,27 +56,62 @@ export function counterpickRisk(pairs,weights,{minGames=100,minCoverage=.8,prior
  return {resolved:true,loss,coverage,count:rows.length,rows:normalized};
 }
 
-export function remainingCounters(profile,champions,draft,{ownChampion=null}={}) {
+function takenChampions(draft,ownChampion){
+ return new Set([ownChampion,...Object.values(draft.allies),...Object.values(draft.enemies),...(draft.bans??[])]);
+}
+
+function counterDownside(adjusted){
+ const downside=Math.max(0,-adjusted);
+ return downside*Math.exp(.4*Math.min(downside,4));
+}
+
+function rankCounterThreats(profiles,champions,draft,taken,limit){
  const openRoles=ROLES.filter(role=>draft.enemies[role]==null);
  if(!openRoles.length)return null;
- const taken=new Set([profile.id,ownChampion,...Object.values(draft.allies),...Object.values(draft.enemies),...(draft.bans??[])]);
+ if(!profiles.length)return [];
  const threats=new Map();
  for(const champion of champions){
   if(taken.has(champion.id))continue;
   for(const role of openRoles){
    const pickShare=champion.roles[role]?.pickRate;
    if(!Number.isFinite(pickShare)||pickShare<.5)continue;
-   const pair=pairContribution(profile.enemy?.[role]?.[champion.id]);
-   if(!pair||pair.games<5000||pair.adjusted>=0)continue;
-   const downside=-pair.adjusted;
-   const severityBoost=Math.exp(.4*Math.min(downside,4));
-   const risk=pickShare/100*downside*severityBoost;
+   const pairs=profiles.map(profile=>pairContribution(profile.enemy?.[role]?.[champion.id]));
+   if(pairs.some(pair=>!pair||pair.games<5000))continue;
+   const totalDownside=pairs.reduce((sum,pair)=>sum+counterDownside(pair.adjusted),0);
+   const risk=pickShare/100*totalDownside/pairs.length;
    if(risk>(threats.get(champion.id)?.risk??0)){
-    threats.set(champion.id,{id:champion.id,role,pickShare,risk,...pair});
+    threats.set(champion.id,{id:champion.id,role,pickShare,risk,pairs});
    }
   }
  }
- return [...threats.values()].sort((a,b)=>b.risk-a.risk||a.id-b.id).slice(0,3);
+ return [...threats.values()].sort((a,b)=>b.risk-a.risk||a.id-b.id).slice(0,limit);
+}
+
+export function remainingCounters(profile,champions,draft,{ownChampion=null}={}){
+ const taken=takenChampions(draft,ownChampion);
+ taken.add(profile.id);
+ const threats=rankCounterThreats([profile],champions,draft,taken,3);
+ return threats?.map(({pairs,...threat})=>({...threat,...pairs[0]}))??null;
+}
+
+export function suggestedPoolBans(roleProfiles,pool,champions,draft,{ownChampion=null}={}){
+ const taken=takenChampions(draft,ownChampion);
+ const available=pool.filter(id=>!taken.has(id)&&roleProfiles[id]).map(id=>roleProfiles[id]);
+ for(const id of pool)taken.add(id);
+ const threats=rankCounterThreats(available,champions,draft,taken,5);
+ return threats?.map(({pairs,...threat})=>{
+  let affected=0,worstIndex=0;
+  for(const [index,pair] of pairs.entries()){
+   if(pair.adjusted<0)affected++;
+   if(pair.adjusted<pairs[worstIndex].adjusted)worstIndex=index;
+  }
+  const worst={id:available[worstIndex].id,...pairs[worstIndex]};
+  const poolShare=threat.pickShare/100/pairs.length;
+  const contributions=pairs.map(({adjusted,games},index)=>({
+   id:available[index].id,adjusted,games,priority:poolShare*counterDownside(adjusted)
+  }));
+  return {...threat,affected,poolSize:pairs.length,worst,contributions};
+ })??null;
 }
 
 export function estimateCounterSafety(profile,champions,options={}) {

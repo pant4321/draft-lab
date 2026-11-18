@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {contributionBreakdown,remainingCounterBreakdown} from '../dist/draft-breakdown.mjs';
+import {readFileSync} from 'node:fs';
+import {contributionBreakdown,remainingCounterCards,poolBanList} from '../dist/draft-breakdown.mjs';
 
 const champion=id=>({name:id===9?'Fiddlesticks':`Champion ${id}`});
 const options={champion,portrait:id=>`<img data-champion="${id}" alt="">`};
@@ -8,19 +9,44 @@ const pair=(id,side,role,overrides={})=>({id,side,kind:side==='allies'?'ally':'e
 const row=pairs=>({id:9,wr:.51,base:1,score:3.8,synergy:1.9,counter:1.9,complete:true,pairs});
 
 test('remaining counters show role pick share and adjusted downside with an explicit empty state',()=>{
- const html=remainingCounterBreakdown([{id:2,role:'jungle',pickShare:3.71,adjusted:-1.758,games:32000}],options);
- assert.match(html,/Remaining counters/);
+ const html=remainingCounterCards([{id:2,role:'jungle',pickShare:3.71,adjusted:-1.758,games:32000}],options);
  assert.match(html,/data-champion="2"/);
  assert.match(html,/Champion 2/);
  assert.match(html,/Jungle · 3\.7% pick share/);
  assert.match(html,/32,000 games">-1\.76 pp/);
- assert.match(html,/popovertarget="remaining-counter-method" aria-label="How remaining counters are ranked"/);
- assert.match(html,/id="remaining-counter-method" class="remaining-counter-method" popover/);
- assert.match(html,/how common they are in their role, giving extra weight to tougher matchups/);
- assert.match(html,/sample-adjusted effects\. Minimum 5,000 matchup games and 0\.5% role pick share/);
- assert.doesNotMatch(html,/LoLalytics|Delta 2/);
- assert.match(remainingCounterBreakdown([],options),/No available common counters found/);
- assert.equal(remainingCounterBreakdown(null,options),'');
+ assert.match(remainingCounterCards([],options),/No available common counters found/);
+ assert.equal(remainingCounterCards(null,options),'');
+});
+
+test('pool ban results are read-only and distinguish an empty pool from no qualifying threats',()=>{
+ const reason={
+  pickShare:3.7,affected:2,poolSize:3,worst:{id:9,adjusted:-1.76,games:32000},risk:.0523,
+  contributions:[
+   {id:9,adjusted:-1.76,games:32000,priority:.0519},
+   {id:8,adjusted:.24,games:21000,priority:0},
+   {id:7,adjusted:-.03,games:6000,priority:.0004}
+  ]
+ };
+ const html=poolBanList([{id:2,role:'jungle',...reason},{id:3,role:'support',...reason}],{...options,hasPool:true});
+ assert.match(html,/<ol class="pool-ban-list">/);
+ assert.ok(html.indexOf('Champion 2')<html.indexOf('Champion 3'));
+ assert.match(html,/Jungle · 3\.7% pick share/);
+ assert.match(html,/Hurts 2 of 3 pool picks/);
+ assert.match(html,/Hardest on Fiddlesticks/);
+ assert.match(html,/32,000 games">-1\.76 pp/);
+ assert.match(html,/<details name="pool-ban-matchups" data-pool-ban-id="2">/);
+ assert.match(html,/aria-label="Pool matchups against Champion 2"/);
+ assert.match(html,/Fiddlesticks<\/th><td[^>]*>-1\.76 pp<\/td><td>0\.052<\/td>/);
+ assert.match(html,/Champion 8<\/th><td[^>]*>\+0\.24 pp<\/td><td>0<\/td>/);
+ assert.match(html,/Champion 7<\/th><td[^>]*>-0\.03 pp<\/td><td>&lt;0\.001<\/td>/);
+ assert.doesNotMatch(html,/<(?:button|input|a)\b/);
+ assert.match(poolBanList([],options),/Add champions to <strong>Your pool<\/strong>/);
+ assert.match(poolBanList([],{...options,hasPool:true}),/No bans to suggest/);
+ const page=readFileSync(new URL('../dist/index.html',import.meta.url),'utf8');
+ assert.match(page,/popovertarget="remaining-counter-method" aria-label="How remaining counters are ranked"/);
+ assert.match(page,/how common they are in their role, giving extra weight to tougher matchups/);
+ assert.match(page,/sample-adjusted effects\. Minimum 5,000 matchup games and 0\.5% role pick share/);
+ assert.match(page,/popovertarget="pool-bans-popover">Suggested bans for your pool<\/button>/);
 });
 
 test('contributions keep role order, exact sample sizes, sign, and separate team subtotals',()=>{

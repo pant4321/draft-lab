@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {groupSpread,estimateBlindSpread,counterpickRisk,estimateCounterSafety,roleBlindability,remainingCounters} from '../dist/blindability.mjs';
+import {groupSpread,estimateBlindSpread,counterpickRisk,estimateCounterSafety,roleBlindability,remainingCounters,suggestedPoolBans} from '../dist/blindability.mjs';
 import {stackMatchups,matchupSpreadGraph} from '../dist/matchup-spread.mjs';
 import {ROLES,emptyDraft,rankDraft} from '../dist/draft-math.mjs';
 const near=(a,b)=>assert.ok(Math.abs(a-b)<1e-8,`${a} != ${b}`);
@@ -111,6 +111,49 @@ test('the imported own pick is unavailable as an enemy counter for a different p
  const profile=fixture(99);
  assert.ok(remainingCounters(profile,champions,draft).some(row=>row.id===1));
  assert.deepEqual(remainingCounters(profile,champions,draft,{ownChampion:1}).map(row=>row.id),[2]);
+});
+
+test('pool ban suggestions average harm across available pool picks and exclude pool, picked and banned champions',()=>{
+ const draft=emptyDraft();
+ draft.allies.support=4;draft.enemies.top=6;draft.bans=[5];
+ const catalog=[1,2,3,4,5,6,7,90,91].map(id=>({id,roles:{jungle:{pickRate:10},top:{pickRate:10}}}));
+ const roleProfiles={
+  90:{id:90,enemy:{
+   top:{1:[-20,5000]},jungle:{1:[-4.8,5000],2:[-3.6,5000],3:[-10,5000],4:[-10,5000],
+    5:[-10,5000],6:[-10,5000],7:[-10,5000],91:[-10,5000]}
+  }},
+  91:{id:91,enemy:{jungle:{
+   1:[1.2,5000],2:[-3.6,5000],3:[-10,4999],4:[-10,5000],5:[-10,5000],6:[-10,5000],7:[-10,5000],90:[-10,5000]
+  }}}
+ };
+ const suggestions=suggestedPoolBans(roleProfiles,[90,91],catalog,draft,{ownChampion:7});
+ assert.deepEqual(suggestions.map(({id,role})=>[id,role]),[[2,'jungle'],[1,'jungle']]);
+ near(suggestions[0].risk,.1*3*Math.exp(1.2));
+ near(suggestions[1].risk,.1*4*Math.exp(1.6)/2);
+ assert.equal(suggestions[0].affected,2);
+ assert.equal(suggestions[1].affected,1);
+ assert.equal(suggestions[1].poolSize,2);
+ assert.equal(suggestions[1].worst.id,90);
+ near(suggestions[1].worst.adjusted,-4);
+ assert.deepEqual(suggestions[1].contributions.map(({id})=>id),[90,91]);
+ assert.equal(suggestions[1].contributions[0].games,5000);
+ near(suggestions[1].contributions[1].adjusted,1);
+ assert.equal(suggestions[1].contributions[1].priority,0);
+ for(const suggestion of suggestions){
+  near(suggestion.contributions.reduce((total,{priority})=>total+priority,0),suggestion.risk);
+ }
+ draft.bans.push(91);
+ const withoutSecond=suggestedPoolBans(roleProfiles,[90,91],catalog,draft,{ownChampion:7});
+ assert.deepEqual(withoutSecond.map(({id})=>id),[3,1,2]);
+ assert.deepEqual(suggestedPoolBans(roleProfiles,[],catalog,draft),[]);
+});
+
+test('pool bans list five threats and the preview lists three',()=>{
+ const draft=emptyDraft();
+ const catalog=[1,2,3,4,5,6].map(id=>({id,roles:{jungle:{pickRate:10}}}));
+ const profile={id:99,enemy:{jungle:Object.fromEntries(catalog.map(({id})=>[id,[id-7,5000]]))}};
+ assert.deepEqual(suggestedPoolBans({99:profile},[99],catalog,draft).map(({id})=>id),[1,2,3,4,5]);
+ assert.deepEqual(remainingCounters(profile,catalog,draft).map(({id})=>id),[1,2,3]);
 });
 
 test('positive bonuses, role WR, and ally synergy cannot affect counterpick safety',()=>{
