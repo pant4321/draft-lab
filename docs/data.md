@@ -36,7 +36,7 @@ Commit and push the reviewed dataset changes from `dist/data`. Then stage `dist/
 
 | Path | Purpose |
 | --- | --- |
-| `dist/data/collect_draft.py` | Private LoLalytics collector |
+| `dist/data/collect_draft.py` | Private snapshot collector |
 | `dist/data/patches/<patch>/` | Validated patch snapshots |
 | `dist/data/patch-revisions/<patch>/<capture>/` | Staging and retained captures from explicit refreshes |
 | `dist/data/draft/` | Generated combined view |
@@ -49,10 +49,10 @@ The rolling-window archive overlaps the patches and never enters the combined vi
 
 ## Sources and aggregation
 
-The collector uses LoLalytics public build pages for enemy matchups and its public Synergy endpoint for ally pairs. It validates patch, champion, role, queue, and cohort, and saves source URLs, response hashes, collection times, and Riot's matching champion roster.
+The collector saves enemy matchup and ally synergy snapshots. It validates patch, champion, role, queue, and cohort, and records provenance, response hashes, collection times, and the matching champion roster.
 
-Candidate win rates are weighted by champion-role game counts. Each pair's published patch-local normalized Delta 2 and observed win rate are weighted by that pair's own game count. Counts are summed; role pick shares are recalculated from summed role counts. Missing pairs stay missing. The data consists of rounded published aggregates, not individual match records.
+Candidate win rates are weighted by champion-role game counts. Each pair's normalized matchup delta and observed win rate are weighted by that pair's own game count. The rebuild sums game counts and uses them to recalculate role pick shares. Missing pairs stay missing. The snapshot contains rounded aggregate stats.
 
 All source-listed roles are retained. Combined recommendation eligibility requires at least 1,000 games and either an inclusive 0.5% role pick share or the champion's primary role. Lower-usage records can still support matchup lookup and role inference.
 
-Use the dataset index and generated catalog for current patch coverage, capture dates, and profile counts. The combined view spans balance changes and is not a current-patch-only forecast.
+Use the dataset index and generated catalog for patch coverage, capture dates, and profile counts. The combined snapshot spans several balance patches and refreshes when a new version is published.

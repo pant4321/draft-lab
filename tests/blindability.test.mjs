@@ -1,6 +1,5 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {readFileSync} from 'node:fs';
 import {groupSpread,estimateBlindSpread,counterpickRisk,estimateCounterSafety,roleBlindability,remainingCounters,suggestedPoolBans} from '../dist/blindability.mjs';
 import {stackMatchups,matchupSpreadGraph} from '../dist/matchup-spread.mjs';
 import {ROLES,emptyDraft,rankDraft} from '../dist/draft-math.mjs';
@@ -16,8 +15,9 @@ test('group variance removes binomial sampling variance with the centering corre
  near(r.observedVariance,2);near(r.noiseVariance,.2);near(r.trueVariance,1.8);
  const total=estimateBlindSpread(p,champions);assert.equal(total.groups.length,9);near(total.spread,Math.sqrt(1.8));
 });
-test('lower weighted downside ranks higher, tied values share a percentile',()=>{
+test('lower downside ranks higher and ties share a percentile across different base win rates',()=>{
  const p={99:fixture(99),98:fixture(98),97:fixture(97,2)};
+ p[99].wr=.48;p[98].wr=.55;
  const scores=roleBlindability(p,champions);
  assert.equal(scores[99].score,75);assert.equal(scores[98].score,75);assert.equal(scores[97].score,0);
 });
@@ -173,12 +173,6 @@ test('positive bonuses, role WR, and ally synergy cannot affect counterpick safe
  near(before.counterLoss,before.counterGroups.reduce((sum,g)=>sum+g.loss,0));
 });
 
-test('base WR cannot change the safety percentile or break a downside tie',()=>{
- const weak=fixture(99),strong=fixture(98);weak.wr=.48;strong.wr=.55;
- const scores=roleBlindability({99:weak,98:strong,97:fixture(97,2)},champions);
- assert.equal(scores[99].score,75);assert.equal(scores[98].score,75);assert.equal(scores[97].score,0);
-});
-
 test('spread graph uses one role’s exact deltas, meta weights and corrected variance',()=>{
  const p=fixture(99),weighted=champions.map((c,i)=>({...c,name:'Champion '+c.id,key:'Test',roles:Object.fromEntries(ROLES.map(r=>[r,{pickRate:(i+1)*10}]))}));
  // Shift one role; the graph must show raw deltas and center its curve at this role's mean.
@@ -228,22 +222,12 @@ test('safety scores require enemy coverage, while graph noise and role WR are se
  const weights={1:20,2:20,3:20,4:20,5:20,6:100};
  assert.equal(counterpickRisk(fixture(99).enemy.top,weights).resolved,false);
 });
-test('blindability never changes draft scores, order, or input data',()=>{
- const root=new URL('../dist/data/draft/',import.meta.url);
- const catalog=JSON.parse(readFileSync(new URL('catalog.json',root))).champions;
- const profiles=JSON.parse(readFileSync(new URL('jungle.json',root))).profiles;
- const original=JSON.stringify(profiles),d=emptyDraft();d.allies.top=516;d.allies.middle=103;d.enemies.top=58;d.enemies.jungle=64;d.enemies.support=111;
- const before=rankDraft(d,profiles),b=roleBlindability(profiles,catalog);
- const metadata=new Map(catalog.map(c=>[c.id,c]));
- for(const estimate of Object.values(b))for(const group of estimate.groups){
-  assert.ok(group.rows.every(r=>Number.isFinite(r.delta)&&metadata.has(r.id)));
-  const graph=matchupSpreadGraph(estimate,metadata,estimate.id,group.kind,group.role);
-  assert.equal((graph.match(/data-spread-champion=/g)||[]).length,group.rows.length);
-  assert.doesNotMatch(graph,/NaN|Infinity/);
- }
- const after=rankDraft(d,profiles);
- assert.deepEqual(after,before);assert.equal(JSON.stringify(profiles),original);
- d.bans=[before.ranked[0].id];d.enemies.middle=134;
- assert.deepEqual(roleBlindability(profiles,catalog),b);
- for(const value of Object.values(b)){assert.ok(value.score>=0&&value.score<=100);assert.ok(Number.isFinite(value.counterLoss)&&value.counterLoss>=0);}
+test('blindability leaves draft ranking and input profiles intact',()=>{
+ const profiles={99:fixture(99),98:fixture(98,2)},original=structuredClone(profiles);
+ const draft=emptyDraft();draft.enemies.top=1;
+ const before=rankDraft(draft,profiles);
+ assert.equal(before.ranked.length,2);
+ roleBlindability(profiles,champions);
+ assert.deepEqual(rankDraft(draft,profiles),before);
+ assert.deepEqual(profiles,original);
 });

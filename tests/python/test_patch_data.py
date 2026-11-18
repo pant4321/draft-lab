@@ -13,7 +13,7 @@ from scripts.update_datasets import collect_patch, update
 
 
 def snapshot(patch_name='16.17', games=1000, pair_games=100, delta=-4, wr=.4):
-    catalog={'source':'LoLalytics','rank':'All ranks','region':'Global','queue':'Ranked solo/duo',
+    catalog={'source':'Example Stats','rank':'All ranks','region':'Global','queue':'Ranked solo/duo',
              'patch':patch_name,'window':patch_name,'ddragonVersion':patch_name+'.1',
              'asOf':'2026-11-15T10:00:00+00:00','errors':[],
              'champions':[{'id':cid,'key':str(cid),'name':str(cid),'slug':str(cid),
@@ -62,6 +62,7 @@ class PatchDataTests(unittest.TestCase):
         first=snapshot('16.17',1000,100,-4,.4)
         second=snapshot('16.18',3000,900,2,.6)
         before=copy.deepcopy([first,second]);catalog,profiles=combine_values([second,first])
+        self.assertEqual(catalog['source'],first[0]['source'])
         value=profiles['jungle']['1']
         self.assertEqual(value['games'],4000);self.assertAlmostEqual(value['wr'],.55)
         self.assertAlmostEqual(value['enemy']['top']['2'][0],1.4)
@@ -79,6 +80,8 @@ class PatchDataTests(unittest.TestCase):
         self.assertEqual(patch_span(['16.17','16.18','16.20']),'16.17–16.18, 16.20')
         with self.assertRaises(ValueError):combine_values([snapshot(),snapshot()])
         wrong=snapshot('16.18');wrong[0]['rank']='Diamond+'
+        with self.assertRaises(ValueError):combine_values([snapshot(),wrong])
+        wrong=snapshot('16.18');wrong[0]['source']='Other Stats'
         with self.assertRaises(ValueError):combine_values([snapshot(),wrong])
         for value in ('30','../16.17','16.017','16.0'):
             with self.assertRaises(ValueError):patch_key(value)

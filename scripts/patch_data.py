@@ -109,10 +109,14 @@ def preserve_history(data_root):
     return [target]
 
 
-def validate_scope(catalog):
-    expected = {'source': 'LoLalytics', 'rank': 'All ranks', 'region': 'Global', 'queue': 'Ranked solo/duo'}
-    if any(catalog.get(key) != value for key, value in expected.items()) or catalog.get('errors'):
+def validate_scope(catalog, expected_source=None):
+    expected = {'rank': 'All ranks', 'region': 'Global', 'queue': 'Ranked solo/duo'}
+    source = catalog.get('source')
+    if (not isinstance(source, str) or not source.strip() or
+            (expected_source is not None and source != expected_source) or
+            any(catalog.get(key) != value for key, value in expected.items()) or catalog.get('errors')):
         raise ValueError('Only complete, matching all-ranks global solo/duo snapshots can be combined.')
+    return source
 
 
 def combine_values(snapshots):
@@ -125,8 +129,9 @@ def combine_values(snapshots):
         raise ValueError('A patch must appear exactly once; overlapping copies cannot be added.')
     champions, meta = {}, {}
     totals = {role: 0 for role in ROLES}
+    source = None
     for catalog, _, _ in ordered:
-        validate_scope(catalog)
+        source = validate_scope(catalog, source)
         for champion in catalog['champions']:
             cid = champion['id'];champions[cid] = {k: v for k, v in champion.items() if k != 'roles'}
             for role, value in champion['roles'].items():
@@ -170,7 +175,7 @@ def combine_values(snapshots):
                                                for opponent, (delta, games, wins) in pairs.items()}
             output[role][key] = result
     latest = ordered[-1][0]
-    catalog = {'schemaVersion': 2, 'kind': 'combined', 'source': 'LoLalytics', 'rank': 'All ranks', 'region': 'Global',
+    catalog = {'schemaVersion': 2, 'kind': 'combined', 'source': source, 'rank': 'All ranks', 'region': 'Global',
                'queue': 'Ranked solo/duo', 'window': 'patches', 'patches': patches,
                'asOf': max(c['asOf'] for c, _, _ in ordered), 'ddragonVersion': latest['ddragonVersion'],
                'candidateFloorRolePercent': CANDIDATE_FLOOR_ROLE_PERCENT, 'aggregation': 'pair-game-weighted patch-local normalized deltas',
@@ -187,9 +192,10 @@ def select_patch_snapshots(data_root):
     candidates += [(path.parent, path.parent.parent.name)
                    for path in (data_root / 'patch-revisions').glob('*/*/snapshot.json')]
     chosen = {}
+    source = None
     for directory, patch in sorted(candidates):
         snapshot = read_snapshot(directory, patch)
-        validate_scope(snapshot[0])
+        source = validate_scope(snapshot[0], source)
         captured = datetime.fromisoformat(snapshot[0]['asOf'])
         if captured.tzinfo is None:
             raise ValueError('Patch capture time must include its timezone.')

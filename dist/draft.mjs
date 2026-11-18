@@ -390,8 +390,8 @@ async function loadDataset(id){
   for(const c of next.champions)merged.set(c.id,c);
   catalog=next;champions=merged;activeDataset=datasets.entry(id);profiles={};blindByRole={};graphCache={};ranking=null;datasetLoading=false;
   const date=new Date(catalog.asOf).toLocaleDateString('en-US',{month:'short',day:'numeric',timeZone:'America/Los_Angeles'});
-  $('snapshot').textContent=`All ranks · ${activeDataset.kind==='combined'?activeDataset.label:'30-day history'} · ${date}`;
-  $('data-details').textContent=`Frozen LoLalytics global ranked solo/duo snapshot. ${activeDataset.kind==='combined'?catalog.patches.length+' discrete patches combined by pair game counts.':'Original 30-day snapshot preserved separately.'} ${catalog.champions.length} champions and ${Object.values(catalog.profileCounts).reduce((sum,n)=>sum+n,0)} champion-role profiles. Missing patch pairs are not invented. Component snapshots retain their source URLs and hashes.`;
+  $('snapshot').textContent=`Snapshot · All ranks · ${activeDataset.kind==='combined'?activeDataset.label:'30-day history'} · ${date}`;
+  $('data-details').textContent=`Draft stats come from a saved snapshot of global ranked solo/duo across all ranks. Stats refresh when a new snapshot is published. ${activeDataset.kind==='combined'?catalog.patches.length+' patches are combined by matchup game count.':'This snapshot covers a 30-day window.'} It covers ${catalog.champions.length} champions and ${Object.values(catalog.profileCounts).reduce((sum,n)=>sum+n,0)} champion-role profiles.`;
   const first=!loadDataset.initialized;
   if(first){restore();try{pools=loadPools(localStorage,champions);}catch{}loadDataset.initialized=true;}
   await update();

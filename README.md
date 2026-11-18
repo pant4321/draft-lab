@@ -21,7 +21,7 @@ For automatic imports, run the Windows companion and leave it open with League. 
 - **Team draft edge:** totals the allied composition, counting each unique ally pair once.
 - **Blindability:** a 0–100 counterpick-safety percentile within a role. It orders the list before any picks are revealed.
 
-These are ranking heuristics, not predicted win probabilities. Data comes from saved LoLalytics all-ranks, global ranked solo/duo aggregates. Recommendation roles need at least 1,000 games and either 0.5% role pick share or primary-role status.
+These scores rank draft fit. Draft Lab serves a saved snapshot of global ranked solo/duo stats across all ranks. Stats refresh when a new snapshot is published. Recommendation roles need at least 1,000 games and either 0.5% role pick share or primary-role status.
 
 [Scoring reference](docs/scoring.md) · [Data collection and updates](docs/data.md) · [Current dataset](https://pant4321.github.io/draft-lab/data/datasets.json) · [Privacy](https://pant4321.github.io/draft-lab/privacy.html)
 

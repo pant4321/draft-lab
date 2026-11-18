@@ -7,7 +7,7 @@
 Look up each revealed champion by its assigned role. Enemy effects are from the candidate's perspective; ally effects describe shared synergy.
 
 ```text
-adjusted effect = normalized Delta 2 × games / (games + 1000)
+adjusted effect = normalized matchup or synergy delta × games / (games + 1000)
 weighted effect = adjusted effect × role multiplier
 draft edge = sum(weighted enemy effects) + sum(weighted ally effects)
 optional base strength = 100 × (candidate win rate − 0.5)

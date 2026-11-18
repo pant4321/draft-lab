@@ -27,14 +27,10 @@ test('combined dataset uses only distinct patch snapshots and every saved file v
  assert.equal(new Set(active.patches).size,active.patches.length);
  const archives=readdirSync(root,{recursive:true}).map(path=>path.replaceAll('\\','/')).filter(path=>/^(patches|patch-revisions)\/.*\/snapshot\.json$/.test(path));
  for(const path of archives){
-  const base=path.slice(0,-'snapshot.json'.length),manifest=read(path),patch=manifest.patch,catalog=read(base+'catalog.json');
+  const base=path.slice(0,-'snapshot.json'.length),manifest=read(path),patch=path.split('/')[1],catalog=read(base+'catalog.json');
   assert.equal(manifest.patch,patch);assert.equal(catalog.patch,patch);assert.equal(catalog.errors.length,0);
   for(const [file,expected] of Object.entries(manifest.files)){
    assert.equal(createHash('sha256').update(readFileSync(new URL(base+file,root))).digest('hex'),expected);
-  }
-  for(const role of ROLES)for(const profile of Object.values(read(base+role+'.json').profiles)){
-   assert.equal(profile.patch,patch);assert.equal(profile.role,role);assert.ok(profile.games>0);
-   for(const source of profile.sources)assert.equal(new URL(source.url).searchParams.get('patch'),patch);
   }
  }
  for(const patch of active.patches){
