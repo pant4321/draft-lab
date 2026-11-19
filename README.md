@@ -45,3 +45,5 @@ python -m unittest discover -s tests/python
 ```
 
 Pushes to `main` check out the pinned datasets, run these checks, and deploy the site with the combined browser files. See [AGENTS.md](AGENTS.md) for asset-cache versioning and repository rules.
+
+When updating the website icon, refresh the `v` query for `favicon.ico` on both HTML pages and for `assets/draft-lab-mark.png` in the homepage header. Use the first 12 SHA-256 characters of each binary file.

@@ -72,6 +72,18 @@ test('entry script and stylesheet cache versions match their content for existin
  for(const file of ['draft-list.mjs','draft-weights.mjs'])assert.ok(readFileSync(new URL(file,root),'utf8').includes(`from './draft-math.mjs?v=${createHash('sha256').update(math).digest('hex').slice(0,12)}'`));
 });
 
+test('the homepage and privacy page use the current version of the site icons',()=>{
+ const root=new URL('../dist/',import.meta.url);
+ const version=file=>createHash('sha256').update(readFileSync(new URL(file,root))).digest('hex').slice(0,12);
+ const icon=`<link rel="icon" href="favicon.ico?v=${version('favicon.ico')}">`;
+ for(const page of ['index.html','privacy.html']){
+  assert.ok(readFileSync(new URL(page,root),'utf8').includes(icon),`Refresh the favicon version in ${page}.`);
+ }
+ const mark='assets/draft-lab-mark.png';
+ assert.ok(readFileSync(new URL('index.html',root),'utf8').includes(`src="${mark}?v=${version(mark)}"`),
+  'Refresh the header icon version in index.html.');
+});
+
 test('entry assets, module imports and initial data resolve on both site addresses',()=>{
  const root=new URL('../dist/',import.meta.url);
  for(const base of [new URL('https://draftedge.website/'),new URL('https://pant4321.github.io/draft-lab/')]){
@@ -86,7 +98,6 @@ test('entry assets, module imports and initial data resolve on both site address
   for(const page of ['index.html','privacy.html']){
    const html=readFileSync(new URL(page,root),'utf8');
    assert.match(html,/<title>[^<]*DraftEdge/);
-   assert.match(html,/<link rel="icon" href="favicon\.ico">/);
    for(const [,reference] of html.matchAll(/(?:href|src)="([^"]+)"/g))resolveAsset(reference,new URL(page,base));
   }
   const pending=['draft.mjs'],seen=new Set();
