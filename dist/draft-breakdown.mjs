@@ -1,4 +1,4 @@
-import {pairContribution} from './draft-math.mjs?v=83c2e3d1ba0f';
+import {pairContribution} from './draft-math.mjs?v=d68b389b73fe';
 
 const escape=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const signed=value=>(value>0?'+':'')+value.toFixed(2);
@@ -87,7 +87,7 @@ export function contributionBreakdown(row,{champion,portrait,includeStrength=fal
   const ignored=pair.multiplier===0,available=hasData&&Number.isFinite(pair.weighted);
   const value=ignored?'Ignored':available?signed(pair.weighted):'No data';
   const metadata=hasData?`<span title="Raw matchup delta: ${signed(pair.raw)} percentage points">${signed(pair.raw)} raw</span><span aria-hidden="true">·</span><span title="${pair.games.toLocaleString('en-US')} games" aria-label="${pair.games.toLocaleString('en-US')} games">${count(pair.games)} games</span>`:'<span>No data</span>';
-  const weight=pair.multiplier!==1?`<p class="pair-weight">${ignored?'0× role weight':hasData?`${signed(pair.adjusted)} adjusted × ${pair.multiplier}`:`${pair.multiplier}× role weight`}</p>`:'';
+  const weight=pair.multiplier!==1?`<p class="pair-weight">${pair.ignoredPick?'Excluded from calculations':ignored?'0× role weight':hasData?`${signed(pair.adjusted)} adjusted × ${pair.multiplier}`:`${pair.multiplier}× role weight`}</p>`:'';
   const limited=available&&!ignored&&pair.games<500?'<p class="pair-limited">Low sample</p>':'';
   return `<article class="pair-card ${pair.kind}"><div class="pair-title">${portrait(pair.id)}<span><small>${roleNames[pair.role]}</small><span class="pair-champion" title="${escape(name)}">${escape(name)}</span></span></div><strong class="pair-value ${!ignored&&available?tone(pair.weighted):'zero'}${!available||ignored?' pair-unavailable':''}">${value}</strong><p class="pair-metadata">${metadata}</p>${weight}${limited}</article>`;
  };

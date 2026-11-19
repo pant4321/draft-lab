@@ -7,7 +7,7 @@ function weight(multipliers,side,role){
 }
 
 // A team has one term per unordered ally pair and one per ally/enemy matchup.
-export function scoreTeamDraft(draft,profiles,{ownChampion=null,priorGames=1000,includeStrength=false,multipliers}={}){
+export function scoreTeamDraft(draft,profiles,{ownChampion=null,priorGames=1000,includeStrength=false,multipliers,ignoredPicks}={}){
  validateDraft(draft);
  if(!Number.isFinite(priorGames)||priorGames<0)throw Error('Invalid sample adjustment.');
  const allies={...draft.allies};
@@ -15,8 +15,9 @@ export function scoreTeamDraft(draft,profiles,{ownChampion=null,priorGames=1000,
   if(!Number.isInteger(ownChampion)||ownChampion<=0||[...Object.values(allies),...Object.values(draft.enemies),...(draft.bans??[])].includes(ownChampion))throw Error('Invalid own champion for team total.');
   allies[draft.role]=ownChampion;
  }
- const picks=ROLES.filter(role=>allies[role]!=null).map(role=>({role,id:allies[role],profile:profiles[role]?.[allies[role]]}));
- const enemies=ROLES.filter(role=>draft.enemies[role]!=null).map(role=>({role,id:draft.enemies[role]}));
+ const active=id=>id!=null&&!ignoredPicks?.has(id);
+ const picks=ROLES.filter(role=>active(allies[role])).map(role=>({role,id:allies[role],profile:profiles[role]?.[allies[role]]}));
+ const enemies=ROLES.filter(role=>active(draft.enemies[role])).map(role=>({role,id:draft.enemies[role]}));
  const terms=[],missing=[];
  let counter=0,synergy=0,base=0,ignored=0;
  function add(kind,from,to,effect,multiplier){

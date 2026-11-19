@@ -72,6 +72,9 @@ test('missing data cannot display a neutral score, while zero-weight slots remai
  assert.match(ignored,/>Ignored</);
  assert.match(ignored,/No data/);
  assert.match(ignored,/0× role weight/);
+ const excluded=contributionBreakdown(row([pair(1,'allies','top',{multiplier:0,weighted:0,ignoredPick:true})]),options);
+ assert.match(excluded,/Excluded from calculations/);
+ assert.doesNotMatch(excluded,/0× role weight/);
 });
 
 test('base strength and custom multipliers retain their separate explanations',()=>{

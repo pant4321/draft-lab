@@ -31,3 +31,20 @@ test('sample adjustment limits noisy extremes and strength is optional',()=>{
  const p=profile(10,{top:{1:[2,1000]}},{},.53);
  near(scoreCandidate(p,d).score,1);near(scoreCandidate(p,d,{includeStrength:true}).score,4);
 });
+
+test('ignoring picks removes their scoring and coverage requirements while keeping them unavailable',()=>{
+ const draft=emptyDraft();draft.enemies.top=1;draft.allies.support=2;draft.enemies.middle=3;
+ const profiles={1:profile(1),2:profile(2),10:profile(10,{middle:{3:[4,1000]}},{support:{2:[20,100]}})};
+ const ignoredPicks=new Set([1,2]);
+ const result=rankDraft(draft,profiles,{ignoredPicks});
+ assert.deepEqual(result.ranked.map(row=>row.id),[10]);
+ assert.equal(result.ignored,2);
+ assert.equal(result.ranked[0].score,2);
+ assert.equal(result.ranked[0].smallSample,false);
+ assert.ok(result.ranked[0].pairs.filter(pair=>ignoredPicks.has(pair.id)).every(pair=>pair.ignoredPick&&pair.weighted===0));
+ draft.enemies.top=null;draft.enemies.jungle=1;
+ assert.equal(rankDraft(draft,profiles,{ignoredPicks}).ranked[0].score,2);
+ ignoredPicks.add(3);
+ assert.equal(rankDraft(draft,profiles,{ignoredPicks}).ready,false);
+ assert.equal(rankDraft(draft,profiles).insufficient.length,1);
+});

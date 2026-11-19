@@ -97,3 +97,16 @@ test('role corrections use profiles in the newly assigned roles and duplicate/ba
  draft.bans=[2];assert.throws(()=>scoreTeamDraft(draft,profiles,{ownChampion:2}));
  assert.throws(()=>scoreTeamDraft(emptyDraft(),profiles,{priorGames:-1}));
 });
+
+test('excluded allies and enemies contribute no team terms, including ally base strength',()=>{
+ const {draft,profiles}=fixture();
+ const ignoredPicks=new Set([1,11]);
+ delete profiles.top;
+ delete profiles.bottom[4].enemy.top[11];
+ const result=scoreTeamDraft(draft,profiles,{ownChampion:2,includeStrength:true,ignoredPicks});
+ assert.equal(result.complete,true);
+ near(result.counter,16);near(result.synergy,6);near(result.base,4);near(result.score,26);
+ assert.equal(result.alliedCount,4);
+ assert.equal(result.enemyCount,4);
+ assert.ok(result.terms.every(term=>!ignoredPicks.has(term.from.id)&&!ignoredPicks.has(term.to?.id)));
+});

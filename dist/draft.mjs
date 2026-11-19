@@ -1,5 +1,5 @@
-import {ROLES,ROLE_NAMES,emptyDraft,validateDraft} from './draft-math.mjs?v=83c2e3d1ba0f';
-import {recommendationList,sortPickerChampions,sortRecommendationRows} from './draft-list.mjs?v=07dea07304f1';
+import {ROLES,ROLE_NAMES,emptyDraft,validateDraft} from './draft-math.mjs?v=d68b389b73fe';
+import {recommendationList,sortPickerChampions,sortRecommendationRows} from './draft-list.mjs?v=a11183630ac5';
 import {roleBlindability,remainingCounters,suggestedPoolBans} from './blindability.mjs?v=4f5efea94ee1';
 import {inferDraftRoles,moveDraftChampion,cleanRoleOverrides,selectDraftRole} from './draft-roles.mjs?v=ae75d9f318bc';
 import {mergeClientSnapshot,combineRoleHints} from './draft-sync.mjs';
@@ -10,9 +10,9 @@ import {matchupSpreadGraph} from './matchup-spread.mjs';
 import {retainPopupFocus,dismissOnBackdrop} from './overlays.mjs';
 import {emptyPools,loadPools,savePools,poolSections,prioritizePool} from './champion-pool.mjs';
 import {DatasetStore} from './datasets.mjs?v=b605a99aaef9';
-import {defaultMultipliers,loadMultipliers,saveMultipliers,customMultipliers} from './draft-weights.mjs?v=0465e432aded';
-import {scoreTeamDraft} from './team-edge.mjs?v=36357097f939';
-import {contributionBreakdown,draftSamplingOffsets,remainingCounterCards,poolBanList} from './draft-breakdown.mjs?v=b55071090861';
+import {defaultMultipliers,loadMultipliers,saveMultipliers,customMultipliers} from './draft-weights.mjs?v=6544ce774f21';
+import {scoreTeamDraft} from './team-edge.mjs?v=bb436706cd55';
+import {contributionBreakdown,draftSamplingOffsets,remainingCounterCards,poolBanList} from './draft-breakdown.mjs?v=7fdf2ce9e2cd';
 const $=id=>document.getElementById(id),esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const signed=v=>(v>0?'+':'')+v.toFixed(2),tone=v=>v>.005?'positive':v<-.005?'negative':'zero';
 const norm=s=>s.toLowerCase().replace(/[^a-z0-9]/g,''),num=n=>n.toLocaleString('en-US');
@@ -21,6 +21,7 @@ const sortHeadings=[...document.querySelectorAll('.ranking-head [data-sort]')];
 const companionSession=prepareCompanionSession();
 startAnalytics();
 let catalog,champions=new Map(),draft=emptyDraft(),profiles={},ranking=null,selected=null,includeStrength=false,picker=null,revision=0;
+let ignoredPicks=new Set();
 let autoRoles=false,roleOverrides={allies:{},enemies:{}},roleDetails={},dragging=null,dragPress=null,dragPreview=null,suppressDragClickUntil=0;
 let companion=null,clientSyncing=false,clientHints={},clientOwnChampion=null,clientSession=null,clientRoleOverride=null,queuedClientSnapshot=null;
 let pools=emptyPools(),poolRole=null,inheritedSelection=false,poolBanMarkup='';
@@ -33,14 +34,18 @@ function blindInfo(id){return blindByRole[draft.role]?.[id];}
 function blindTitle(id){const b=blindInfo(id);return b?.score!=null?`Counterpick safety: ${b.score}/100 among ${b.comparedWith} ${ROLE_NAMES[draft.role].toLowerCase()} picks. ${b.counterLoss.toFixed(2)} pp weighted downside across five enemy roles. Negative matchup deltas are sample-adjusted and multiplied by opponent role pick-rate share. Rare picks count less. Base WR, positive bonuses, and ally synergy do not affect this score. Independent of draft edge.`:(b?.reason??'Not enough comparable role data.');}
 function blindCell(id){const b=blindInfo(id);return `<button type="button" data-blind="${id}" aria-haspopup="dialog" aria-expanded="false" aria-controls="blindability-popover" class="blind-score ${b?.score!=null?(b.score>=67?'blind-high':b.score<=33?'blind-low':'blind-mid'):'zero'}" aria-label="${esc(champion(id).name)} matchup WR delta spread. ${esc(blindTitle(id))}">${b?.score!=null?b.score+'<small>/100</small>':'—'}</button>`;}
 function img(id,cls='portrait'){const c=champion(id);return c?`<img class="${cls}" draggable="false" src="assets/${esc(c.key)}.png" alt="">`:'';}
-function persist(){try{localStorage.setItem(STORAGE,JSON.stringify({draft,includeStrength,autoRoles,roleOverrides,selected,inheritedSelection}));}catch{}}
-function restore(){try{const value=JSON.parse(localStorage.getItem(STORAGE));if(value?.draft){validateDraft(value.draft);for(const id of [...Object.values(value.draft.allies),...Object.values(value.draft.enemies),...value.draft.bans])if(id!=null&&!champions.has(id))throw Error('Unknown saved champion.');draft=value.draft;includeStrength=!!value.includeStrength;autoRoles=!!value.autoRoles;roleOverrides=cleanRoleOverrides(draft,value.roleOverrides);const blocked=[...Object.values(draft.allies),...Object.values(draft.enemies),...draft.bans];selected=champions.has(value.selected)&&!blocked.includes(value.selected)?value.selected:null;inheritedSelection=selected!=null&&!!value.inheritedSelection;}}catch{draft=emptyDraft();selected=null;inheritedSelection=false;}}
+function persist(){try{localStorage.setItem(STORAGE,JSON.stringify({draft,includeStrength,autoRoles,roleOverrides,selected,inheritedSelection,ignoredPicks:[...ignoredPicks]}));}catch{}}
+function restore(){try{const value=JSON.parse(localStorage.getItem(STORAGE));if(value?.draft){validateDraft(value.draft);for(const id of [...Object.values(value.draft.allies),...Object.values(value.draft.enemies),...value.draft.bans])if(id!=null&&!champions.has(id))throw Error('Unknown saved champion.');draft=value.draft;ignoredPicks=new Set(Array.isArray(value.ignoredPicks)?value.ignoredPicks:[]);includeStrength=!!value.includeStrength;autoRoles=!!value.autoRoles;roleOverrides=cleanRoleOverrides(draft,value.roleOverrides);const blocked=[...Object.values(draft.allies),...Object.values(draft.enemies),...draft.bans];selected=champions.has(value.selected)&&!blocked.includes(value.selected)?value.selected:null;inheritedSelection=selected!=null&&!!value.inheritedSelection;}}catch{draft=emptyDraft();ignoredPicks.clear();selected=null;inheritedSelection=false;}}
+function needsRoleProfile(role){
+ const id=draft.allies[role];
+ return !profiles[role]&&(role===draft.role||id!=null&&!ignoredPicks.has(id));
+}
 function renderTeamEdge(message=null){
  const own=clientOwnChampion??selected;
  const blocked=[...Object.values(draft.allies),...Object.values(draft.enemies),...draft.bans];
  const ownChampion=own!=null&&!blocked.includes(own)?own:null;
- const loading=datasetLoading||ROLES.some(role=>(role===draft.role||draft.allies[role]!=null)&&!profiles[role]);
- const total=message||loading?null:scoreTeamDraft(draft,profiles,{ownChampion,includeStrength,multipliers});
+ const loading=datasetLoading||ROLES.some(needsRoleProfile);
+ const total=message||loading?null:scoreTeamDraft(draft,profiles,{ownChampion,includeStrength,multipliers,ignoredPicks});
  const show=(id,value)=>{const element=$(id);element.textContent=value==null?'—':signed(value);element.className=(id==='team-edge-total'?'team-edge-total ':'')+(value==null?'zero':tone(value));};
  show('team-edge-total',total?.ready?total.score:null);
  show('team-edge-counter',total?.ready?total.counter:null);
@@ -51,25 +56,43 @@ function renderTeamEdge(message=null){
  $('team-edge-note').textContent=message??(total?.ready&&!total.complete?'Some selected roles are missing matchup data.':'');
  $('team-edge-note').hidden=!$('team-edge-note').textContent;
 }
+function slotActions(c,side,role,ignored){
+ const name=esc(c.name),team=side==='allies'?'allied':'enemy';
+ return `<div class="slot-actions">
+  <button type="button" class="slot-clear" data-clear="${side}" data-role="${role}" aria-label="Remove ${name} from ${team} ${ROLE_NAMES[role]}">×</button>
+  <button type="button" class="slot-ignore" data-ignore-pick="${c.id}" aria-label="Exclude ${name} from calculations" aria-pressed="${ignored}" title="${ignored?'Include in calculations':'Exclude from calculations'}">⊘</button>
+ </div>`;
+}
 function renderBoard(){
  renderTeamEdge();
+ const focusedIgnore=document.activeElement?.dataset.ignorePick;
  for(const side of ['allies','enemies']) {
   $(side).innerHTML=ROLES.map(role=>{
    const own=side==='allies'&&role===draft.role;
    const id=own?(clientOwnChampion??selected):draft[side][role],c=champion(id),name=c?.name??(own?'':'Choose champion');
+   const ignored=!own&&ignoredPicks.has(id);
    const fixed=!own&&roleOverrides[side]?.[id]===role,guess=!own&&roleDetails[side]?.[id];
    const uncertain=guess&&!fixed&&(guess.unsupported||guess.alternatives.length);
    const hint=fixed?'Manual role. Auto guess roles will keep this correction.':uncertain?(guess.unsupported?'Limited role data. Drag to correct.':'Could also be '+guess.alternatives.map(r=>ROLE_NAMES[r]).join(' or ')+'. Drag to correct.'):'Drag to move; drop on a champion to swap roles.';
    const marker=fixed?'<span class="role-marker fixed" title="Manual role correction">SET</span>':uncertain?'<span class="role-marker uncertain" title="'+esc(hint)+'">?</span>':'';
    const body=`${c?img(id):'<span class="placeholder">'+(own?'◈':'+')+'</span>'}<span class="slot-text"><span class="slot-role">${ROLE_NAMES[role]}${marker}${own?'<span class="you-tag">'+(clientOwnChampion?'LOCKED':c?'PREVIEW':'YOU')+'</span>':''}</span><span class="slot-name">${esc(name)}</span></span>`;
-   return `<div data-slot-side="${side}" data-slot-role="${role}" class="slot ${own?'you':!c?'slot-empty':''}">${own?`<div class="slot-main" aria-label="Your ${ROLE_NAMES[role]} pick preview">${body}</div>`:`<button class="slot-main" draggable="${!!c}" title="${c?esc(hint):''}" data-side="${side}" data-role="${role}" aria-label="Choose ${side==='allies'?'allied':'enemy'} ${ROLE_NAMES[role]}">${body}</button>`}${!own&&c?`<button class="slot-move" data-move="${side}" data-role="${role}" aria-label="Move ${esc(c.name)} to another ${side==='allies'?'allied':'enemy'} role" title="Move or swap role">↔</button><button class="slot-clear" data-clear="${side}" data-role="${role}" aria-label="Remove ${esc(c.name)} from ${side==='allies'?'allied':'enemy'} ${ROLE_NAMES[role]}">×</button>`:''}</div>`;
+   return `<div data-slot-side="${side}" data-slot-role="${role}" class="slot ${own?'you':!c?'slot-empty':''}${ignored?' slot-ignored':''}">${own?`<div class="slot-main" aria-label="Your ${ROLE_NAMES[role]} pick preview">${body}</div>`:`<button class="slot-main" draggable="${!!c}" title="${c?esc(hint):''}" data-side="${side}" data-role="${role}" aria-label="Choose ${side==='allies'?'allied':'enemy'} ${ROLE_NAMES[role]}">${body}</button>`}${!own&&c?slotActions(c,side,role,ignored):''}</div>`;
   }).join('');
  }
  document.querySelectorAll('.slot-main[data-side]').forEach(b=>b.onclick=()=>openPicker({side:b.dataset.side,role:b.dataset.role}));
  document.querySelectorAll('[data-clear]').forEach(b=>b.onclick=()=>{pauseForManualEdit();draft[b.dataset.clear][b.dataset.role]=null;update();});
+ document.querySelectorAll('[data-ignore-pick]').forEach(button=>{
+  if(button.dataset.ignorePick===focusedIgnore)button.focus({preventScroll:true});
+  button.onclick=()=>{
+   if(datasetLoading)return;
+   const id=+button.dataset.ignorePick;
+   if(ignoredPicks.has(id))ignoredPicks.delete(id);
+   else ignoredPicks.add(id);
+   update();
+  };
+ });
  $('allied-count').textContent=Object.values(draft.allies).filter(x=>x!=null).length+' revealed';
  $('enemy-count').textContent=Object.values(draft.enemies).filter(x=>x!=null).length+' revealed';
- document.querySelectorAll('[data-move]').forEach(b=>b.onclick=()=>openRoleMover(b.dataset.move,b.dataset.role));
  $('auto-roles').checked=autoRoles;$('auto-roles').disabled=clientSyncing;
  $('auto-roles-sync-note').hidden=!clientSyncing;
  $('clear-role-pins').hidden=!Object.values(roleOverrides).some(p=>Object.keys(p).length);
@@ -191,6 +214,8 @@ async function update(){
  try{
   roleOverrides=cleanRoleOverrides(draft,roleOverrides);roleDetails={};
   if(autoRoles){const guess=inferDraftRoles(draft,champions,combineRoleHints(draft,roleOverrides,clientHints));draft=guess.draft;roleDetails=guess.details;}
+  const revealed=new Set([...Object.values(draft.allies),...Object.values(draft.enemies)].filter(id=>id!=null));
+  for(const id of ignoredPicks)if(!revealed.has(id))ignoredPicks.delete(id);
   persist();renderBoard();
   if(!profiles[draft.role]){
    renderPoolBans();
@@ -199,7 +224,7 @@ async function update(){
    $('ranking-context').textContent='Loading '+ROLE_NAMES[draft.role].toLowerCase()+' pairs…';
    $('rankings').innerHTML='<div class="empty"><h3>Loading '+ROLE_NAMES[draft.role].toLowerCase()+' matchups…</h3></div>';
   }
-  const needed=ROLES.filter(role=>(role===draft.role||draft.allies[role]!=null)&&!profiles[role]);
+  const needed=ROLES.filter(needsRoleProfile);
   const datasetId=activeDataset.id;
   const loaded=await Promise.all(needed.map(async role=>[role,await datasets.role(datasetId,role)]));
   if(current!==revision||activeDataset.id!==datasetId)return;
@@ -209,7 +234,7 @@ async function update(){
   if(!blindByRole[draft.role]){
    blindByRole[draft.role]=roleBlindability(profiles[draft.role],catalog.champions);
   }
-  ranking=recommendationList(draft,profiles[draft.role],blindByRole[draft.role],champions,{includeStrength,multipliers});
+  ranking=recommendationList(draft,profiles[draft.role],blindByRole[draft.role],champions,{includeStrength,multipliers,ignoredPicks});
   ranking={...ranking,ranked:prioritizePool(ranking.ranked,pools[draft.role])};
   if([...Object.values(draft.allies),...Object.values(draft.enemies),...draft.bans].includes(selected)){selected=null;inheritedSelection=false;}
   if(!inheritedSelection&&!ranking.ranked.some(x=>x.id===selected))selected=ranking.mode==='blindability'?null:ranking.ranked[0]?.id??null;
@@ -277,19 +302,11 @@ function renderPool(){
  document.querySelectorAll('[data-pool-pick]').forEach(button=>button.onclick=()=>changePool(+button.dataset.poolPick));
  document.querySelectorAll('[data-pool-remove]').forEach(button=>button.onclick=()=>changePool(+button.dataset.poolRemove));
 }
-function openRoleMover(side,role){
- hideSpread();const id=draft[side][role];if(id==null)return;
- $('role-mover-title').textContent='Move '+champion(id).name;
- $('role-move-options').innerHTML=ROLES.filter(r=>r!==role&&!(side==='allies'&&r===draft.role)).map(r=>`<button class="role-option" data-move-to="${r}" aria-label="Move ${esc(champion(id).name)} to ${side==='allies'?'allied':'enemy'} ${ROLE_NAMES[r]}"><span>${ROLE_NAMES[r]}</span><small>${draft[side][r]!=null?'Swap with '+esc(champion(draft[side][r]).name):'Open'}</small></button>`).join('');
- document.querySelectorAll('[data-move-to]').forEach(b=>b.onclick=()=>applyRoleMove(side,role,b.dataset.moveTo,id,true));
- $('role-mover').showModal();
-}
-async function applyRoleMove(side,from,to,id,focus=false){
+async function applyRoleMove(side,from,to,id){
  try{
   if(draft[side][from]!==id)throw Error('The draft changed. Try moving the champion again.');
   const moved=moveDraftChampion(draft,side,from,to,roleOverrides);draft=moved.draft;roleOverrides=moved.overrides;
-  $('role-mover').close();await update();flushQueuedClient();
-  if(focus)document.querySelector(`[data-move="${side}"][data-role="${to}"]`)?.focus({preventScroll:true});
+  await update();
  }catch(e){$('status').textContent=e.message;}
 }
 function clearDrag(){
@@ -315,7 +332,7 @@ document.addEventListener('pointermove',e=>{
   document.documentElement.setPointerCapture(e.pointerId);document.body.classList.add('is-dragging');
   dragPreview=dragPress.card.cloneNode(true);dragPreview.classList.remove('grabbed');dragPreview.classList.add('drag-preview');
   dragPreview.removeAttribute('data-slot-side');dragPreview.removeAttribute('data-slot-role');dragPreview.setAttribute('aria-hidden','true');dragPreview.inert=true;
-  dragPreview.querySelectorAll('.slot-move,.slot-clear').forEach(el=>el.remove());
+  dragPreview.querySelector('.slot-actions')?.remove();
   dragPreview.style.width=dragPress.width+'px';dragPreview.style.height=dragPress.height+'px';
   document.body.append(dragPreview);dragPress.card.classList.remove('grabbed');dragPress.card.classList.add('dragging');
  }
@@ -336,8 +353,6 @@ window.addEventListener('blur',()=>{clearDrag();flushQueuedClient();});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&dragPress){e.preventDefault();suppressDragClickUntil=performance.now()+250;clearDrag();flushQueuedClient();}});
 document.addEventListener('dragstart',e=>{if(e.target.closest('.slot-main[draggable="true"]'))e.preventDefault();});
 document.addEventListener('click',e=>{if(performance.now()<suppressDragClickUntil){e.preventDefault();e.stopImmediatePropagation();}},true);
-$('close-role-mover').onclick=()=>{$('role-mover').close();flushQueuedClient();};
-$('role-mover').addEventListener('cancel',()=>setTimeout(flushQueuedClient,0));
 const spreadPopup=$('blindability-popover');
 let spreadTrigger=null,spreadTimer,suppressedTrigger=null;
 retainPopupFocus(spreadPopup,()=>clearTimeout(spreadTimer));
@@ -423,23 +438,24 @@ document.querySelectorAll('[data-your-role]').forEach(button=>button.onclick=()=
 });
 $('auto-roles').onchange=()=>{autoRoles=$('auto-roles').checked;update();};
 $('clear-role-pins').onclick=()=>{roleOverrides={allies:{},enemies:{}};update();};
-$('reset').onclick=()=>{pauseForManualEdit();draft=emptyDraft(draft.role);roleOverrides={allies:{},enemies:{}};selected=null;inheritedSelection=false;clientOwnChampion=null;$('candidate-search').value='';update();};
+$('reset').onclick=()=>{pauseForManualEdit();draft=emptyDraft(draft.role);ignoredPicks.clear();roleOverrides={allies:{},enemies:{}};selected=null;inheritedSelection=false;clientOwnChampion=null;$('candidate-search').value='';update();};
 function pauseForManualEdit(){
  if(companion&&clientSyncing)companion.pause();
 }
 function acceptClientSnapshot(snapshot){
- if(dragPress||$('role-mover').open){queuedClientSnapshot=snapshot;return;}
+ if(dragPress){queuedClientSnapshot=snapshot;return;}
  const newSession=clientSession!==snapshot.sessionId;
  if(newSession)clientRoleOverride=null;
  try{
   const result=mergeClientSnapshot(draft,snapshot,champions,{overrides:roleOverrides,newSession,roleOverride:clientRoleOverride});
+  if(newSession)ignoredPicks.clear();
   draft=result.draft;roleOverrides=result.overrides;clientHints=result.hints;clientOwnChampion=result.ownChampion;clientSession=snapshot.sessionId;autoRoles=true;
   update();
   if(result.unknown.length)$('companion-status').textContent='Some champions are missing from this snapshot';
  }catch{$('companion-status').textContent='Draft could not be synced. Pause sync to enter picks manually.';}
 }
 function flushQueuedClient(){
- if(queuedClientSnapshot&&!dragPress&&!$('role-mover').open&&clientSyncing){const next=queuedClientSnapshot;queuedClientSnapshot=null;acceptClientSnapshot(next);}
+ if(queuedClientSnapshot&&!dragPress&&clientSyncing){const next=queuedClientSnapshot;queuedClientSnapshot=null;acceptClientSnapshot(next);}
 }
 async function loadDataset(id){
  const request=++datasetRevision;++revision;datasetLoading=true;hideSpread();

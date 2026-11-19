@@ -17,6 +17,8 @@ Effects use percentage points. The fixed 1,000-game adjustment reduces small-sam
 
 Unknown slots add nothing. Candidates missing an active pair are unranked. Picked and banned champions are excluded. **Your pool** groups preferred champions first without changing their scores or eligibility; each group keeps its score order.
 
+Use **⊘** on a revealed ally or enemy to exclude that champion from calculations. The champion still occupies a slot and remains unavailable as a recommendation. The exclusion follows the champion through role changes and clears when the pick is removed. If every revealed pick is excluded, recommendations use Blindability.
+
 The contribution panel shows raw deltas, adjusted weighted values, game counts, and custom multipliers. Ignored and missing terms are labeled explicitly. The selected champion remains a preview in your open role until imported as a locked pick.
 
 The recommendation list defaults to **Draft Edge** with picks revealed and **Blindability** on an empty board. Select any available metric heading to sort within each recommendation group. Select it again to reverse the order. Sample Δ starts with the narrowest ranges. Other columns start with the highest values.
@@ -36,6 +38,8 @@ The team total includes the selected preview or your imported locked pick. It su
 - Each ally's base strength once, when enabled.
 
 A synergy pair averages the available directional sample-adjusted effects and uses the mean of its two role weights. A reverse record alone is sufficient. Counters use the opposing role's counter multiplier. Missing active data makes the total unavailable instead of presenting a partial sum as complete.
+
+An excluded champion contributes no counter or synergy terms to Team Draft Edge. Excluding an ally also omits their base strength.
 
 ## Blindability
 

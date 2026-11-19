@@ -1,4 +1,4 @@
-import {ROLES,MAX_ROLE_MULTIPLIER} from './draft-math.mjs?v=83c2e3d1ba0f';
+import {ROLES,MAX_ROLE_MULTIPLIER} from './draft-math.mjs?v=d68b389b73fe';
 export const WEIGHTS_STORAGE='draftlab-role-multipliers-v1';
 export function defaultMultipliers(){return Object.fromEntries(['allies','enemies'].map(side=>[side,Object.fromEntries(ROLES.map(role=>[role,1]))]));}
 export function cleanMultipliers(value){

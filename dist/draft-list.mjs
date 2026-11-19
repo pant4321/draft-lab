@@ -1,4 +1,4 @@
-import {rankDraft} from './draft-math.mjs?v=83c2e3d1ba0f';
+import {rankDraft} from './draft-math.mjs?v=d68b389b73fe';
 
 export function recommendationList(draft,profiles,blindability,champions,options={}) {
  const ranking=rankDraft(draft,profiles,options);

@@ -32,16 +32,18 @@ function roleMultiplier(multipliers,side,role){
  if(!Number.isFinite(value)||value<0||value>MAX_ROLE_MULTIPLIER)throw Error('Role multipliers must be between 0 and 5.');
  return value;
 }
-export function scoreCandidate(profile,draft,{priorGames=1000,includeStrength=false,multipliers}={}) {
+export function scoreCandidate(profile,draft,{priorGames=1000,includeStrength=false,multipliers,ignoredPicks}={}) {
  const pairs=[];let counter=0,synergy=0,missing=0;
  for(const [side,kind] of [['enemies','enemy'],['allies','ally']]) {
   for(const role of ROLES) {
    const id=draft[side][role];if(id==null)continue;
    const effect=pairContribution(profile[kind]?.[role]?.[id],priorGames);
-   const multiplier=roleMultiplier(multipliers,side,role),weighted=multiplier===0?0:effect?effect.adjusted*multiplier:null;
+   const ignoredPick=ignoredPicks?.has(id);
+   const multiplier=ignoredPick?0:roleMultiplier(multipliers,side,role);
+   const weighted=multiplier===0?0:effect?effect.adjusted*multiplier:null;
    if(weighted!=null){if(kind==='enemy')counter+=weighted;else synergy+=weighted;}
    else missing++;
-   pairs.push({side,kind,role,id,...(effect??{raw:null,games:0,adjusted:null}),multiplier,weighted});
+   pairs.push({side,kind,role,id,...(effect??{raw:null,games:0,adjusted:null}),multiplier,weighted,...(ignoredPick?{ignoredPick:true}:{})});
   }
  }
  const base=100*(profile.wr-.5),fit=counter+synergy;
@@ -51,10 +53,14 @@ export function scoreCandidate(profile,draft,{priorGames=1000,includeStrength=fa
 }
 export function rankDraft(draft,profiles,options={}) {
  validateDraft(draft);
- const blocked=new Set([...Object.values(draft.allies),...Object.values(draft.enemies),...(draft.bans??[])]);
- const shown=Object.values(draft.allies).filter(x=>x!=null).length+Object.values(draft.enemies).filter(x=>x!=null).length;
- const ignored=['allies','enemies'].reduce((count,side)=>count+ROLES.filter(role=>draft[side][role]!=null&&roleMultiplier(options.multipliers,side,role)===0).length,0);
- if(!shown)return {ready:false,ranked:[],insufficient:[],shown,ignored};
+ const picks=[...Object.values(draft.allies),...Object.values(draft.enemies)].filter(id=>id!=null);
+ const blocked=new Set([...picks,...(draft.bans??[])]);
+ const shown=picks.length;
+ const ignored=['allies','enemies'].reduce((count,side)=>count+ROLES.filter(role=>{
+  const id=draft[side][role];
+  return id!=null&&(options.ignoredPicks?.has(id)||roleMultiplier(options.multipliers,side,role)===0);
+ }).length,0);
+ if(!picks.some(id=>!options.ignoredPicks?.has(id)))return {ready:false,ranked:[],insufficient:[],shown,ignored};
  const results=Object.values(profiles).filter(p=>p.role===draft.role&&!blocked.has(p.id)).map(p=>scoreCandidate(p,draft,options));
  const sort=(a,b)=>b.score-a.score||a.id-b.id;
  return {ready:true,ranked:results.filter(x=>x.complete).sort(sort),insufficient:results.filter(x=>!x.complete).sort(sort),shown,ignored};

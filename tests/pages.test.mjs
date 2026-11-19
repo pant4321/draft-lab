@@ -14,6 +14,27 @@ test('the public scoring notes describe the data as a saved snapshot',()=>{
  assert.match(html,/<p id="data-details">Draft stats come from a saved, non-live snapshot\.<\/p>/);
 });
 
+test('draft slots offer removal and exclusion and use drag-and-drop for role moves',()=>{
+ const html=readFileSync(new URL('../dist/index.html',import.meta.url),'utf8');
+ const entry=readFileSync(new URL('../dist/draft.mjs',import.meta.url),'utf8');
+ const css=readFileSync(new URL('../dist/draft.css',import.meta.url),'utf8');
+ const actions=entry.match(/<div class="slot-actions">([\s\S]*?)<\/div>/)?.[1];
+ assert.ok(actions);
+ assert.deepEqual([...actions.matchAll(/<button[^>]*class="([^"]+)"/g)].map(match=>match[1]),['slot-clear','slot-ignore']);
+ assert.match(css,/\.slot-actions\s*\{[^}]*grid-template-rows:\s*repeat\(2,/);
+ assert.match(actions,/<button[^>]*aria-pressed="\$\{ignored\}"[^>]*>⊘<\/button>/);
+ assert.match(entry,/applyRoleMove\(source.side,source.role,to,source.id\)/);
+ assert.doesNotMatch(html,/id="role-mover"/);
+});
+
+test('the main page footer includes the contact address and Riot Games disclaimer',()=>{
+ const html=readFileSync(new URL('../dist/index.html',import.meta.url),'utf8');
+ const footer=html.match(/<footer>([\s\S]*?)<\/footer>/)?.[1];
+ const disclaimer="DraftEdge isn't endorsed by Riot Games and doesn't reflect the views or opinions of Riot Games or anyone officially involved in producing or managing Riot Games properties. Riot Games, and all associated properties are trademarks or registered trademarks of Riot Games, Inc.";
+ assert.ok(footer?.includes(`<p class="riot-legal">${disclaimer}</p>`));
+ assert.ok(footer?.includes('<a href="mailto:contact@draftedge.website">Contact</a>'));
+});
+
 test('entry script and stylesheet cache versions match their content for existing visitors',()=>{
  const root=new URL('../dist/',import.meta.url);
  const html=readFileSync(new URL('index.html',root),'utf8');
