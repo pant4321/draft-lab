@@ -14,6 +14,19 @@ test('the public scoring notes describe the data as a saved snapshot',()=>{
  assert.match(html,/<p id="data-details">Draft stats come from a saved, non-live snapshot\.<\/p>/);
 });
 
+test('ranking headings offer metric explanations without sort instructions',()=>{
+ const html=readFileSync(new URL('../dist/index.html',import.meta.url),'utf8');
+ const entry=readFileSync(new URL('../dist/draft.mjs',import.meta.url),'utf8');
+ assert.match(html,/popovertarget="ranking-metrics-help"/);
+ const help=html.match(/<div id="ranking-metrics-help" popover>([\s\S]*?)<\/div>/)?.[1];
+ assert.ok(help);
+ for(const metric of ['blindability','sample','score']){
+  assert.ok(html.includes(`data-sort="${metric}" aria-describedby="metric-${metric}"`));
+  assert.match(help,new RegExp(`<dd id="metric-${metric}">[^<]+</dd>`));
+ }
+ assert.doesNotMatch(entry,/Sort (highest|lowest) first/);
+});
+
 test('draft slots offer removal and exclusion and use drag-and-drop for role moves',()=>{
  const html=readFileSync(new URL('../dist/index.html',import.meta.url),'utf8');
  const entry=readFileSync(new URL('../dist/draft.mjs',import.meta.url),'utf8');

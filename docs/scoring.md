@@ -21,7 +21,7 @@ Use **⊘** on a revealed ally or enemy to exclude that champion from calculatio
 
 The contribution panel shows raw deltas, adjusted weighted values, game counts, and custom multipliers. Ignored and missing terms are labeled explicitly. The selected champion remains a preview in your open role until imported as a locked pick.
 
-The recommendation list defaults to **Draft Edge** with picks revealed and **Blindability** on an empty board. Select any available metric heading to sort within each recommendation group. Select it again to reverse the order. Sample Δ starts with the narrowest ranges. Other columns start with the highest values.
+The recommendation list defaults to **Draft Edge** with picks revealed and **Blindability** on an empty board. Select any available metric heading to sort within each recommendation group. Select it again to reverse the order. Sample Δ starts with the narrowest ranges. Other columns start with the highest values. Open **?** beside **Champion** for short explanations of Blindability, Sample Δ, and Draft Edge.
 
 ### Matchup sample sizes
 

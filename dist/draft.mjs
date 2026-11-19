@@ -110,15 +110,11 @@ function renderRankingSort(rows,mode){
   rankingSort={mode,key:mode==='blindability'?'blindability':'score',direction:-1};
  }
  for(const heading of sortHeadings){
-  const key=heading.dataset.sort,name=heading.textContent;
+  const key=heading.dataset.sort;
   const available=hasValues(key),active=available&&rankingSort.key===key;
-  const next=active?-rankingSort.direction:key==='sample'?1:-1;
-  const action=next===1?'Sort lowest first':'Sort highest first';
   heading.disabled=!available;
   heading.setAttribute('aria-pressed',String(active));
   heading.dataset.direction=active?(rankingSort.direction===1?'ascending':'descending'):'';
-  heading.setAttribute('aria-label',active?`${name}. Sorted ${rankingSort.direction===1?'lowest':'highest'} first. ${action}.`:`${name}. ${action}.`);
-  heading.title=[available?`${action}.`:'No values to sort.',heading.dataset.help].filter(Boolean).join(' ');
  }
 }
 function renderRanking(){
@@ -418,13 +414,17 @@ $('champion-picker').addEventListener('cancel',()=>{picker=null;});
 $('picker-search').oninput=renderPicker;
 $('add-ban').onclick=()=>openPicker({ban:true});
 $('candidate-search').oninput=renderRanking;
-for(const heading of sortHeadings)heading.onclick=()=>{
- const key=heading.dataset.sort;
- const direction=rankingSort?.key===key?-rankingSort.direction:key==='sample'?1:-1;
- rankingSort={mode:ranking.mode,key,direction};
- renderRanking();
- $('rankings').scrollTop=0;
-};
+for(const heading of sortHeadings){
+ const description=heading.getAttribute('aria-describedby');
+ if(description)heading.title=$(description).textContent;
+ heading.onclick=()=>{
+  const key=heading.dataset.sort;
+  const direction=rankingSort?.key===key?-rankingSort.direction:key==='sample'?1:-1;
+  rankingSort={mode:ranking.mode,key,direction};
+  renderRanking();
+  $('rankings').scrollTop=0;
+ };
+}
 $('include-strength').onchange=()=>{includeStrength=$('include-strength').checked;update();};
 document.querySelectorAll('[data-your-role]').forEach(button=>button.onclick=()=>{
  const role=button.dataset.yourRole;if(role===draft.role||datasetLoading)return;

@@ -128,12 +128,12 @@ footer{display:grid;justify-content:stretch;gap:9px;font-size:10px}
 .remaining-counters-head h3{font:500 13px 'DM Sans',sans-serif;color:var(--red)}
 .remaining-counters p{color:var(--muted);font-size:11px}
 #pool-bans-button{margin-inline-start:auto;color:var(--green)}
-.remaining-counter-help{
+.remaining-counter-help,.ranking-metric-help{
  display:grid;place-items:center;width:24px;height:24px;padding:0;
  border:1px solid #53676a;border-radius:50%;background:#172123;color:var(--muted);font-size:12px;
 }
-.remaining-counter-help:hover,.remaining-counter-help:focus-visible{color:var(--text);border-color:var(--green)}
-.remaining-counter-method,#pool-bans-popover{
+.remaining-counter-help:hover,.remaining-counter-help:focus-visible,.ranking-metric-help:hover,.ranking-metric-help:focus-visible{color:var(--text);border-color:var(--green)}
+.remaining-counter-method,#pool-bans-popover,#ranking-metrics-help{
  width:min(300px,calc(100vw - 32px));padding:12px 14px;
  border:1px solid #53676a;border-radius:6px;background:#172326;color:var(--text);box-shadow:0 8px 24px #0008;
 }
@@ -168,9 +168,10 @@ footer{display:grid;justify-content:stretch;gap:9px;font-size:10px}
 @supports (position-area: block-start){
  .remaining-counter-method{inset:auto;margin:6px 0;position-area:block-start;position-try-fallbacks:flip-block}
  #pool-bans-popover{inset:auto;margin:6px 0;max-height:calc(50dvh - 32px);position-area:block-end span-inline-start;position-try-fallbacks:flip-block}
+ #ranking-metrics-help{inset:auto;margin:6px 0;position-area:block-end span-inline-end;position-try-fallbacks:flip-block,flip-inline}
 }
 @supports not selector(:popover-open){
- .remaining-counter-help,.remaining-counter-method,#pool-bans-button,#pool-bans-popover{display:none}
+ .remaining-counter-help,.remaining-counter-method,#pool-bans-button,#pool-bans-popover,.ranking-metric-help,#ranking-metrics-help{display:none}
 }
 .remaining-counter-list{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;list-style:none;padding:0;margin:0}
 .remaining-counter{
@@ -207,7 +208,13 @@ footer{display:grid;justify-content:stretch;gap:9px;font-size:10px}
 }
 
 .ranking-head{padding-block:0}
-.ranking-head>span:first-child{align-self:center}
+.ranking-champion{display:flex;align-items:center;align-self:center;gap:5px}
+.ranking-metric-help{flex:none;width:20px;height:20px;font-size:11px}
+#ranking-metrics-help{max-height:calc(100dvh - 32px);overflow:auto;font-size:12px;line-height:1.5}
+#ranking-metrics-help dl{margin:0}
+#ranking-metrics-help dt{font-weight:600}
+#ranking-metrics-help dd{margin:2px 0 0;color:var(--muted)}
+#ranking-metrics-help dd+dt{margin-top:10px}
 .sort-heading{
  display:flex;align-items:center;justify-content:flex-end;gap:4px;min-width:0;
  border:0;padding:11px 0;background:transparent;color:inherit;font:inherit;text-align:right;white-space:nowrap;
