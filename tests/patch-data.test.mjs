@@ -59,6 +59,17 @@ test('the completed historical patch captures remain immutable',()=>{
  }
 });
 
+test('both combined datasets retain the finalized patch captures',()=>{
+ const finalized=JSON.parse(readFileSync(new URL('fixtures/final-patch-hashes.json',import.meta.url),'utf8'));
+ for(const [base,dataset] of [['draft/','combined'],['emerald-plus/draft/','emerald-plus']]){
+  const {components}=read(base+'catalog.json');
+  for(const [patch,hashes] of Object.entries(finalized)){
+   const component=components.find(value=>value.patch===patch);
+   assert.equal(component?.snapshotSha256,hashes[dataset],`${dataset} patch ${patch} must use its final snapshot`);
+  }
+ }
+});
+
 for(const [base,rank] of [['draft/','All ranks'],['emerald-plus/draft/','Emerald+']]){
 test(`${rank} candidate rates and pair samples agree with independent patch-weighted calculations`,()=>{
  const active=read(base+'catalog.json');

@@ -52,11 +52,14 @@ Run `python riot_collector.py --summary` from the server's data volume to inspec
 | `dist/data/patch-revisions/<patch>/<capture>/` | Staging and retained captures from explicit refreshes |
 | `dist/data/draft/` | Generated combined view |
 | `dist/data/emerald-plus/patches/<patch>/` | Validated Emerald+ patch snapshots |
+| `dist/data/emerald-plus/patch-revisions/<patch>/<capture>/` | Staging and retained Emerald+ refresh captures |
 | `dist/data/emerald-plus/draft/` | Generated Emerald+ combined view |
 | `dist/data/datasets.json` | Local dataset index and file checksums |
 | `dist/data/history/30d-2026-11-14/` | Original rolling-window archive |
 
 Keep completed historical patches and the rolling-window archive unchanged. A validated current-patch refresh may fully replace its normal patch directory; remove the superseded copy and rebuild afterward. The rebuild records the selected source directory and uses each patch exactly once, even if multiple captures remain.
+
+For a final capture after a patch rolls over, save both cohorts in their `patch-revisions` directories and keep the earlier captures. Pin the final manifest hashes in [final-patch-hashes.json](../tests/fixtures/final-patch-hashes.json). The tests require both combined datasets to keep using those exact captures as newer patches are added.
 
 The rolling-window archive overlaps the patches and never enters the combined view. Offline rebuilding verifies every saved capture, rejects corrupt or conflicting sources, and reuses unchanged results. The browser verifies SHA-256 checksums before loading data.
 
