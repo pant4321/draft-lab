@@ -5,3 +5,6 @@ node_modules/
 build/
 __pycache__/
 *.pyc
+riot-api-key.txt
+/data/matches.sqlite3
+/data/matches.sqlite3-*

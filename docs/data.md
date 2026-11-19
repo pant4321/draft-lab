@@ -35,6 +35,14 @@ Replace the example patch number with the released patch you need. Already-saved
 
 Commit and push the reviewed dataset changes from `dist/data`. Then stage `dist/data` in the site repository to commit the new submodule revision. The Pages workflow verifies the saved data and stages the combined catalogs, role files, and their public index. To inspect that output locally, run `python -m scripts.build_pages build/pages` with a fresh destination.
 
+## Riot API pilot
+
+`scripts/riot_collector.py` runs a private NA ranked solo/duo sample. It rotates discovery across Gold, Platinum, and Emerald, deduplicates matches before fetching details, and saves complete drafts by patch in `data/matches.sqlite3`. The same match response supplies each champion's end-of-game item slots, primary and secondary rune trees and selections, and stat shards. The `builds` column stores those fields by team and role when available. Earlier rows without build data have a null `builds` value. The queue also stores the Riot account identifiers needed to poll recent match lists. Keep the whole database private and review coverage before using pilot data for public recommendations.
+
+On the DraftEdge Collector server in Pterodactyl, save the key as the only text in `riot-api-key.txt` at the root of **Files**. The worker checks for the file every 15 seconds while waiting for a key. If Riot rejects a key, replace the file to resume from the existing queue. Keep server file access restricted and exclude `riot-api-key.txt` from backups. Stop the worker before copying its SQLite database for a manual backup.
+
+Run `python riot_collector.py --summary` from the server's data volume to inspect aggregate counts by patch and how many matches include builds without querying Riot. Run `python -m unittest discover -s tests/python` from the repository to test the collector.
+
 ## Files and replacement policy
 
 | Path | Purpose |
