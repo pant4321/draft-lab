@@ -42,7 +42,6 @@ export function Explanations() {
         <div className="footer-meta">
           <span>DraftEdge</span>
           <span>
-            Champion art © Riot Games ·{' '}
             <a href="mailto:contact@draftedge.website">Contact</a> ·{' '}
             <a href="privacy.html">Privacy</a>
           </span>

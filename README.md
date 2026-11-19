@@ -24,6 +24,8 @@ For automatic imports, run the Windows companion and leave it open with League. 
 
 These scores rank draft fit. Use the rank dropdown at the top right to switch between All ranks and Emerald+ snapshots of global ranked solo/duo for the same patches. Stats refresh when a new snapshot is published. Recommendation roles need at least 1,000 games and either 0.5% role pick share or primary-role status.
 
+Champion names, IDs, and portraits come from Riot Games Data Dragon. Ranked matchup and synergy stats come from LoLalytics. For a new patch, rebuild the snapshots and update the portraits for the version recorded in the generated catalog. [Riot Data Dragon](https://developer.riotgames.com/docs/lol#data-dragon) · [Snapshot update steps](docs/data.md#collect-and-rebuild) · [Portrait update steps](docs/data.md#update-champion-portraits)
+
 [Scoring reference](docs/scoring.md) · [Data collection and updates](docs/data.md) · [Current dataset](https://pant4321.github.io/draft-lab/data/datasets.json) · [Privacy](https://pant4321.github.io/draft-lab/privacy.html)
 
 ## Run locally

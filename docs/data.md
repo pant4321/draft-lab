@@ -35,6 +35,22 @@ Replace the example patch number with the released patch you need. Already-saved
 
 Commit and push the reviewed dataset changes from `dist/data`. Then stage `dist/data` in the site repository to commit the new submodule revision. The Pages workflow verifies the saved data and stages the combined catalogs, role files, and their public index. It also publishes a checksummed stats-only bundle for each patch selected for a combined dataset. Those bundles power **Settings → Patches**. Run `npm run build` to inspect what gets published in `build/pages/data`. Vite copies the verified files from `build/web-public/data`.
 
+## Update champion portraits
+
+The collector reads Riot's English champion roster from Data Dragon and records the exact version as `ddragonVersion` in each catalog. After rebuilding the snapshots, use the version in `dist/data/draft/catalog.json` for portrait updates. Riot publishes the available versions in its [Data Dragon version list](https://ddragon.leagueoflegends.com/api/versions.json).
+
+The site publishes portraits from `web/public/assets` using each champion's catalog `key`. Keep the key's capitalization and use `MonkeyKing.png` for Wukong. Copy any new portraits from the collector's local `dist/assets` directory into `web/public/assets`, or download the file directly from Data Dragon. This PowerShell example refreshes Wukong's portrait from the catalog's version.
+
+```powershell
+$catalog = Get-Content -Raw dist/data/draft/catalog.json | ConvertFrom-Json
+$key = 'MonkeyKing'
+$version = $catalog.ddragonVersion
+$url = "https://ddragon.leagueoflegends.com/cdn/$version/img/champion/$key.png"
+Invoke-WebRequest $url -OutFile "web/public/assets/$key.png"
+```
+
+Run `npm run build` and `npm run test:e2e -- pages.spec.ts` before committing the portrait changes. The production artifact test checks that both published rank catalogs have every required portrait.
+
 ## Riot API pilot
 
 `scripts/riot_collector.py` runs a private NA ranked solo/duo sample. It rotates discovery across Gold, Platinum, and Emerald, deduplicates matches before fetching details, and saves complete drafts by patch in `data/matches.sqlite3`. The same match response supplies each champion's end-of-game item slots, primary and secondary rune trees and selections, and stat shards. The `builds` column stores those fields by team and role when available. Earlier rows without build data have a null `builds` value. The queue also stores the Riot account identifiers needed to poll recent match lists. Keep the whole database private and review coverage before using pilot data for public recommendations.

@@ -33,6 +33,9 @@ for (const base of ['/', '/draft-lab/']) {
       'href',
       'mailto:contact@draftedge.website',
     );
+    await expect(page.locator('.footer-meta span').last()).toHaveText(
+      'Contact · Privacy',
+    );
     await expect(page.locator('.riot-legal')).toContainText('Riot Games');
     await expect(page.locator('.brand img')).toHaveAttribute(
       'src',
