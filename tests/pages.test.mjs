@@ -27,6 +27,11 @@ test('ranking headings offer metric explanations without sort instructions',()=>
  assert.doesNotMatch(entry,/Sort (highest|lowest) first/);
 });
 
+test('draft settings place the patch selector and sampling warning in a closed disclosure below role settings',()=>{
+ const html=readFileSync(new URL('../dist/index.html',import.meta.url),'utf8');
+ assert.match(html,/<dialog id="draft-settings-dialog"[\s\S]*?id="auto-roles"[\s\S]*?<details id="patch-settings" hidden>\s*<summary>Patches<\/summary>\s*<fieldset id="patch-controls" aria-describedby="patch-warning">[\s\S]*?id="patch-options"[\s\S]*?id="patch-warning">[^<]*noise\.[\s\S]*?<\/details>\s*<div class="settings-footer">/);
+});
+
 test('draft slots offer removal and exclusion and use drag-and-drop for role moves',()=>{
  const html=readFileSync(new URL('../dist/index.html',import.meta.url),'utf8');
  const entry=readFileSync(new URL('../dist/draft.mjs',import.meta.url),'utf8');
@@ -70,6 +75,9 @@ test('entry script and stylesheet cache versions match their content for existin
  for(const file of ['analytics.mjs','companion-session.mjs'])assert.ok(readFileSync(new URL(file,root),'utf8').includes(siteImport));
  const math=readFileSync(new URL('draft-math.mjs',root),'utf8').replace(/\r\n/g,'\n');
  for(const file of ['draft-list.mjs','draft-weights.mjs'])assert.ok(readFileSync(new URL(file,root),'utf8').includes(`from './draft-math.mjs?v=${createHash('sha256').update(math).digest('hex').slice(0,12)}'`));
+ const patchStats=readFileSync(new URL('patch-stats.mjs',root),'utf8').replace(/\r\n/g,'\n');
+ const patchVersion=createHash('sha256').update(patchStats).digest('hex').slice(0,12);
+ assert.ok(readFileSync(new URL('datasets.mjs',root),'utf8').includes(`from './patch-stats.mjs?v=${patchVersion}'`));
 });
 
 test('the homepage and privacy page use the current version of the site icons',()=>{

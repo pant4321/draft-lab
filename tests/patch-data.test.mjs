@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {readFileSync,readdirSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {ROLES} from '../dist/draft-math.mjs';
+import {combinePatchCatalogs,combinePatchRole} from '../dist/patch-stats.mjs';
 
 const root=new URL('../dist/data/',import.meta.url),read=path=>JSON.parse(readFileSync(new URL(path,root),'utf8'));
 const near=(a,b)=>assert.ok(Math.abs(a-b)<1e-8,`${a} vs ${b}`);
@@ -66,6 +67,32 @@ test('both combined datasets retain the finalized patch captures',()=>{
   for(const [patch,hashes] of Object.entries(finalized)){
    const component=components.find(value=>value.patch===patch);
    assert.equal(component?.snapshotSha256,hashes[dataset],`${dataset} patch ${patch} must use its final snapshot`);
+  }
+ }
+});
+
+test('browser patch aggregation matches offline eligibility, samples and effects for both cohorts',()=>{
+ for(const base of ['draft/','emerald-plus/draft/']){
+  const active=read(base+'catalog.json'),role='jungle';
+  const sources=active.patches.map(patch=>snapshotBase(active,patch));
+  const champions=combinePatchCatalogs(sources.map(source=>read(source+'catalog.json')));
+  const browser=combinePatchRole(sources.map(source=>read(source+role+'.json').profiles),champions,role,active.candidateFloorRolePercent);
+  const offline=read(base+role+'.json').profiles;
+  assert.deepEqual(Object.keys(browser),Object.keys(offline));
+  for(const champion of active.champions)for(const [name,meta] of Object.entries(champion.roles)){
+   const current=champions.get(champion.id).roles[name];
+   assert.equal(current.games,meta.games);
+   near(current.wr,meta.wr);near(current.pickRate,meta.pickRate);
+  }
+  for(const [id,profile] of Object.entries(offline)){
+   const current=browser[id];
+   assert.equal(current.games,profile.games);near(current.wr,profile.wr);
+   for(const [kind,other] of [['enemy','top'],['ally','middle']]){
+    for(const [opponent,pair] of Object.entries(profile[kind][other])){
+     const found=current[kind][other][opponent];
+     assert.equal(found[1],pair[1]);near(found[0],pair[0]);near(found[2],pair[2]);
+    }
+   }
   }
  }
 });

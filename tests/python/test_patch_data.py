@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import patch
 
 from scripts.build_pages import build_pages
-from scripts.patch_data import (EMERALD_RANK, ROLES, FILES, combine_values, patch_span, patch_key,
+from scripts.patch_data import (EMERALD_RANK, ROLES, FILES, combine_values, digest, patch_span, patch_key,
                                 preserve_history, read_snapshot, rebuild, write_snapshot, select_patch_snapshots)
 from scripts.update_datasets import collect_patch, update
 
@@ -156,7 +156,7 @@ class PatchDataTests(unittest.TestCase):
             self.assertEqual(profiles['jungle']['1']['games'], 5000)
             self.assertEqual(profiles['jungle']['1']['enemy']['top']['2'], [3.2, 1000, .4])
 
-    def test_pages_publishes_both_combined_datasets_and_excludes_captures(self):
+    def test_pages_publishes_both_combined_datasets_and_only_selected_patch_stats(self):
         with tempfile.TemporaryDirectory() as temporary:
             root=Path(temporary)
             source=root/'dist'
@@ -164,7 +164,9 @@ class PatchDataTests(unittest.TestCase):
             catalog,profiles,_=snapshot()
             write_snapshot(data/'history'/'30d-test',catalog,profiles,kind='historical')
             write_snapshot(data/'patches'/'16.17',catalog,profiles,kind='patch')
-            write_snapshot(data/'patch-revisions'/'16.17'/'capture',catalog,profiles,kind='patch')
+            revised,revised_profiles,_=snapshot(games=2000)
+            revised['asOf']='2026-11-16T10:00:00+00:00'
+            write_snapshot(data/'patch-revisions'/'16.17'/'capture',revised,revised_profiles,kind='patch')
             catalog['rank'] = EMERALD_RANK
             write_snapshot(data/'emerald-plus'/'patches'/'16.17',catalog,profiles,kind='patch')
             index=rebuild(data)
@@ -174,14 +176,28 @@ class PatchDataTests(unittest.TestCase):
             published=root/'pages'
             build_pages(source,published)
             self.assertEqual((published/'index.html').read_bytes(),(source/'index.html').read_bytes())
-            self.assertEqual({path.name for path in (published/'data').iterdir()},{'draft','emerald-plus','datasets.json'})
+            self.assertEqual({path.name for path in (published/'data').iterdir()},{'draft','emerald-plus','patch-inputs','datasets.json'})
             self.assertEqual({path.name for path in (published/'data'/'emerald-plus').iterdir()}, {'draft'})
             for directory in ('draft', 'emerald-plus/draft'):
                 self.assertEqual({path.name for path in (published/'data'/directory).iterdir()},set(FILES))
                 for name in FILES:
                     self.assertEqual((published/'data'/directory/name).read_bytes(),(data/directory/name).read_bytes())
             public_index=json.loads((published/'data'/'datasets.json').read_bytes())
-            self.assertEqual(public_index,{**index,'datasets':index['datasets'][:2]})
+            self.assertEqual(len(public_index['datasets']),2)
+            for public, original in zip(public_index['datasets'], index['datasets']):
+                self.assertEqual({key:value for key,value in public.items() if key!='patchInputs'},original)
+                patch_input, = public['patchInputs']
+                self.assertEqual((patch_input['patch'],patch_input['base']),
+                                 ('16.17',f'data/patch-inputs/{public["id"]}/16.17'))
+                patch_dir=published/patch_input['base']
+                self.assertEqual({path.name for path in patch_dir.iterdir()},set(FILES))
+                for name, checksum in patch_input['files'].items():
+                    self.assertEqual(digest((patch_dir/name).read_bytes()),checksum)
+                patch_catalog=json.loads((patch_dir/'catalog.json').read_bytes())
+                self.assertEqual(set(patch_catalog),{'patch','rank','asOf','champions'})
+                expected=revised_profiles if public['id']=='combined' else profiles
+                raw_profile=json.loads((patch_dir/'jungle.json').read_bytes())['profiles']['1']
+                self.assertEqual(raw_profile,{key:expected['jungle']['1'][key] for key in ('games','wr','enemy','ally')})
             self.assertEqual(json.loads((data/'datasets.json').read_bytes()),index)
 
             (data/'emerald-plus'/'draft'/'jungle.json').write_text('{}',encoding='utf-8')

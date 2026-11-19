@@ -9,7 +9,7 @@ import {startAnalytics} from './analytics.mjs?v=cb37a77fa3e1';
 import {matchupSpreadGraph} from './matchup-spread.mjs';
 import {retainPopupFocus,dismissOnBackdrop} from './overlays.mjs';
 import {emptyPools,loadPools,savePools,poolSections,prioritizePool} from './champion-pool.mjs';
-import {DatasetStore} from './datasets.mjs?v=b605a99aaef9';
+import {DatasetStore} from './datasets.mjs?v=c3fd2cb92150';
 import {defaultMultipliers,loadMultipliers,saveMultipliers,customMultipliers} from './draft-weights.mjs?v=6544ce774f21';
 import {scoreTeamDraft} from './team-edge.mjs?v=bb436706cd55';
 import {contributionBreakdown,draftSamplingOffsets,remainingCounterCards,poolBanList} from './draft-breakdown.mjs?v=7fdf2ce9e2cd';
@@ -17,6 +17,7 @@ const $=id=>document.getElementById(id),esc=s=>String(s).replace(/[&<>"']/g,c=>(
 const signed=v=>(v>0?'+':'')+v.toFixed(2),tone=v=>v>.005?'positive':v<-.005?'negative':'zero';
 const norm=s=>s.toLowerCase().replace(/[^a-z0-9]/g,''),num=n=>n.toLocaleString('en-US');
 const STORAGE='draftlab-draft-v1';
+const PATCH_STORAGE='draftlab-excluded-patches-v1';
 const sortHeadings=[...document.querySelectorAll('.ranking-head [data-sort]')];
 const companionSession=prepareCompanionSession();
 startAnalytics();
@@ -26,6 +27,11 @@ let autoRoles=false,roleOverrides={allies:{},enemies:{}},roleDetails={},dragging
 let companion=null,clientSyncing=false,clientHints={},clientOwnChampion=null,clientSession=null,clientRoleOverride=null,queuedClientSnapshot=null;
 let pools=emptyPools(),poolRole=null,inheritedSelection=false,poolBanMarkup='';
 let datasets,activeDataset=null,datasetLoading=true,datasetRevision=0;
+let excludedPatches=[];
+try{
+ const saved=JSON.parse(localStorage.getItem(PATCH_STORAGE));
+ if(Array.isArray(saved))excludedPatches=saved;
+}catch{}
 let rankingSort=null;
 let blindByRole={};
 let multipliers=defaultMultipliers();try{multipliers=loadMultipliers(localStorage);}catch{}
@@ -35,11 +41,12 @@ function blindTitle(id){const b=blindInfo(id);return b?.score!=null?`Counterpick
 function blindCell(id){const b=blindInfo(id);return `<button type="button" data-blind="${id}" aria-haspopup="dialog" aria-expanded="false" aria-controls="blindability-popover" class="blind-score ${b?.score!=null?(b.score>=67?'blind-high':b.score<=33?'blind-low':'blind-mid'):'zero'}" aria-label="${esc(champion(id).name)} matchup WR delta spread. ${esc(blindTitle(id))}">${b?.score!=null?b.score+'<small>/100</small>':'—'}</button>`;}
 function img(id,cls='portrait'){const c=champion(id);return c?`<img class="${cls}" draggable="false" src="assets/${esc(c.key)}.png" alt="">`:'';}
 function persist(){try{localStorage.setItem(STORAGE,JSON.stringify({draft,includeStrength,autoRoles,roleOverrides,selected,inheritedSelection,ignoredPicks:[...ignoredPicks]}));}catch{}}
-function restore(){try{const value=JSON.parse(localStorage.getItem(STORAGE));if(value?.draft){validateDraft(value.draft);for(const id of [...Object.values(value.draft.allies),...Object.values(value.draft.enemies),...value.draft.bans])if(id!=null&&!champions.has(id))throw Error('Unknown saved champion.');draft=value.draft;ignoredPicks=new Set(Array.isArray(value.ignoredPicks)?value.ignoredPicks:[]);includeStrength=!!value.includeStrength;autoRoles=!!value.autoRoles;roleOverrides=cleanRoleOverrides(draft,value.roleOverrides);const blocked=[...Object.values(draft.allies),...Object.values(draft.enemies),...draft.bans];selected=champions.has(value.selected)&&!blocked.includes(value.selected)?value.selected:null;inheritedSelection=selected!=null&&!!value.inheritedSelection;}}catch{draft=emptyDraft();ignoredPicks.clear();selected=null;inheritedSelection=false;}}
-function needsRoleProfile(role){
+function restore(roster){try{const value=JSON.parse(localStorage.getItem(STORAGE));if(value?.draft){validateDraft(value.draft);for(const id of [...Object.values(value.draft.allies),...Object.values(value.draft.enemies),...value.draft.bans])if(id!=null&&!roster.has(id))throw Error('Unknown saved champion.');draft=value.draft;ignoredPicks=new Set(Array.isArray(value.ignoredPicks)?value.ignoredPicks:[]);includeStrength=!!value.includeStrength;autoRoles=!!value.autoRoles;roleOverrides=cleanRoleOverrides(draft,value.roleOverrides);const blocked=[...Object.values(draft.allies),...Object.values(draft.enemies),...draft.bans];selected=roster.has(value.selected)&&!blocked.includes(value.selected)?value.selected:null;inheritedSelection=selected!=null&&!!value.inheritedSelection;}}catch{draft=emptyDraft();ignoredPicks.clear();selected=null;inheritedSelection=false;}}
+function usesRole(role){
  const id=draft.allies[role];
- return !profiles[role]&&(role===draft.role||id!=null&&!ignoredPicks.has(id));
+ return role===draft.role||id!=null&&!ignoredPicks.has(id);
 }
+const needsRoleProfile=role=>!profiles[role]&&usesRole(role);
 function renderTeamEdge(message=null){
  const own=clientOwnChampion??selected;
  const blocked=[...Object.values(draft.allies),...Object.values(draft.enemies),...draft.bans];
@@ -100,7 +107,7 @@ function renderBoard(){
  $('include-strength').checked=includeStrength;
  $('edit-pool').textContent='Your pool'+(pools[draft.role].length?' · '+pools[draft.role].length:'');
  $('edit-pool').disabled=!profiles[draft.role];
- $('draft-settings').textContent=customMultipliers(multipliers)?'Settings · custom':'Settings';
+ $('draft-settings').textContent=customMultipliers(multipliers)||excludedPatches.length?'Settings · custom':'Settings';
  $('ban-chips').innerHTML=draft.bans.map(id=>`<button class="ban-chip" data-unban="${id}" aria-label="Unban ${esc(champion(id).name)}">${img(id,'')}<span>${esc(champion(id).name)} ×</span></button>`).join('');
  document.querySelectorAll('[data-unban]').forEach(b=>b.onclick=()=>{pauseForManualEdit();draft.bans=draft.bans.filter(id=>id!==+b.dataset.unban);update();});
 }
@@ -221,9 +228,9 @@ async function update(){
    $('rankings').innerHTML='<div class="empty"><h3>Loading '+ROLE_NAMES[draft.role].toLowerCase()+' matchups…</h3></div>';
   }
   const needed=ROLES.filter(needsRoleProfile);
-  const datasetId=activeDataset.id;
-  const loaded=await Promise.all(needed.map(async role=>[role,await datasets.role(datasetId,role)]));
-  if(current!==revision||activeDataset.id!==datasetId)return;
+  const dataset=activeDataset;
+  const loaded=await Promise.all(needed.map(async role=>[role,await dataset.role(role)]));
+  if(current!==revision||activeDataset!==dataset)return;
   for(const [role,values] of loaded)profiles[role]=values;
   if(current!==revision)return;
   renderPoolBans();
@@ -265,14 +272,30 @@ function renderSettings(){
   try{saveMultipliers(localStorage,multipliers);}catch{}update();
  });
 }
+function updatePatchCount(){
+ const options=[...$('patch-options').querySelectorAll('input')];
+ const count=options.filter(input=>input.checked).length;
+ for(const input of options)input.disabled=count===1&&input.checked;
+ $('patch-count').textContent=`${count} of ${options.length} patches selected${count===1?' · Keep at least one patch':''}`;
+}
+function renderPatchSettings(){
+ const available=activeDataset?.entry.patches??[];
+ $('patch-settings').hidden=available.length<2;
+ $('patch-controls').disabled=datasetLoading;
+ $('patch-options').innerHTML=available.map(patch=>`<label class="patch-choice"><input type="checkbox" value="${esc(patch)}"${activeDataset.patches.includes(patch)?' checked':''}>${esc(patch)}</label>`).join('');
+ updatePatchCount();
+}
 $('companion-download-open').onclick=()=>{hideSpread();$('companion-download-dialog').showModal();};
 $('companion-download-close').onclick=()=>$('companion-download-dialog').close();
 dismissOnBackdrop($('companion-download-dialog'),()=>$('companion-download-dialog').close());
-$('draft-settings').onclick=()=>{hideSpread();renderSettings();$('draft-settings-dialog').showModal();};
+$('draft-settings').onclick=()=>{hideSpread();renderSettings();$('patch-settings').open=false;renderPatchSettings();$('draft-settings-dialog').showModal();};
+$('patch-options').onchange=updatePatchCount;
 $('close-settings').onclick=()=>$('draft-settings-dialog').close();
 $('settings-done').onclick=()=>{
  const invalid=[...document.querySelectorAll('[data-weight-side]')].find(input=>!input.checkValidity());
  if(invalid){invalid.reportValidity();return;}$('draft-settings-dialog').close();
+ const next=[...$('patch-options').querySelectorAll('input:not(:checked)')].map(input=>input.value);
+ if(activeDataset&&!datasetLoading&&next.join(',')!==excludedPatches.join(','))loadDataset(activeDataset.entry.id,next);
 };
 $('reset-weights').onclick=()=>{multipliers=defaultMultipliers();try{saveMultipliers(localStorage,multipliers);}catch{}renderSettings();update();};
 dismissOnBackdrop($('draft-settings-dialog'),()=>$('draft-settings-dialog').close());
@@ -457,7 +480,7 @@ function acceptClientSnapshot(snapshot){
 function flushQueuedClient(){
  if(queuedClientSnapshot&&!dragPress&&clientSyncing){const next=queuedClientSnapshot;queuedClientSnapshot=null;acceptClientSnapshot(next);}
 }
-async function loadDataset(id){
+async function loadDataset(id,exclusions=excludedPatches){
  const request=++datasetRevision;++revision;datasetLoading=true;hideSpread();
  renderTeamEdge();renderPoolBans();
  $('rank-dataset').disabled=true;
@@ -466,15 +489,30 @@ async function loadDataset(id){
  $('rankings').innerHTML='<div class="empty"><h3>Loading dataset…</h3></div>';
  $('edit-pool').disabled=true;$('ranking-context').textContent='Loading dataset…';
  try{
-  const next=await datasets.catalog(id);if(request!==datasetRevision)return;
+  const next=await datasets.select(id,exclusions);if(request!==datasetRevision)return;
+  const available=next.entry.patches??[];
+  const filtered=next.patches.length<available.length;
   const merged=new Map([...champions].map(([cid,c])=>[cid,{...c,roles:{}}]));
-  for(const c of next.champions)merged.set(c.id,c);
-  catalog=next;champions=merged;activeDataset=datasets.entry(id);profiles={};blindByRole={};graphCache={};ranking=null;datasetLoading=false;
+  for(const c of next.roster??[])merged.set(c.id,{...c,roles:{}});
+  for(const c of next.catalog.champions)merged.set(c.id,c);
+  const first=!loadDataset.initialized;
+  if(first)restore(merged);
+  const nextProfiles={};
+  if(activeDataset||filtered){
+   for(const role of ROLES.filter(usesRole)){
+    nextProfiles[role]=await next.role(role);
+    if(request!==datasetRevision)return;
+   }
+  }
+  catalog=next.catalog;champions=merged;activeDataset=next;profiles=nextProfiles;blindByRole={};graphCache={};ranking=null;datasetLoading=false;
+  excludedPatches=available.filter(patch=>!next.patches.includes(patch));
+  try{localStorage.setItem(PATCH_STORAGE,JSON.stringify(excludedPatches));}catch{}
   const date=new Date(catalog.asOf).toLocaleDateString('en-US',{month:'short',day:'numeric',timeZone:'America/Los_Angeles'});
   const snapshotRank=$('rank-dataset').hidden?[catalog.rank]:[];
-  $('snapshot').textContent=[...snapshotRank,activeDataset.label,date].join(' · ');
-  const first=!loadDataset.initialized;
-  if(first){restore();try{pools=loadPools(localStorage,champions);}catch{}loadDataset.initialized=true;}
+  const label=filtered?`${next.patches.length} of ${available.length} patches`:next.entry.label;
+  $('snapshot').textContent=[...snapshotRank,label,date].join(' · ');
+  $('snapshot').title=filtered?`Included patches: ${next.patches.join(', ')}`:'';
+  if(first){try{pools=loadPools(localStorage,champions);}catch{}loadDataset.initialized=true;}
   await update();
   if(first)companion=connectCompanion(state=>{
    clientSyncing=state.syncing;
@@ -484,13 +522,15 @@ async function loadDataset(id){
   },acceptClientSnapshot,companionSession);
  }catch(error){
   if(request!==datasetRevision)return;
+  if(!activeDataset&&exclusions.length){await loadDataset(id,[]);return;}
   datasetLoading=false;
-  if(activeDataset)await update();
-  $('status').textContent=error.message;
+  if(activeDataset){await update();$('status').textContent=`Could not load the requested dataset. ${error.message}`;}
+  else $('status').textContent=error.message;
  }finally{
   if(request===datasetRevision){
-   $('rank-dataset').value=activeDataset?.id??datasets.defaultId;
+   $('rank-dataset').value=activeDataset?.entry.id??datasets.defaultId;
    $('rank-dataset').disabled=false;
+   if($('draft-settings-dialog').open)renderPatchSettings();
   }
  }
 }

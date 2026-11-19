@@ -1,15 +1,47 @@
-"""Stage the website and its public combined datasets."""
+"""Stage the website, combined datasets, and public patch stats."""
 import argparse
 import json
 from pathlib import Path
 import shutil
 
-from scripts.patch_data import ALL_RANKS, EMERALD_DATASET, EMERALD_RANK, FILES, read_snapshot, write_json
+from scripts.patch_data import (ALL_RANKS, EMERALD_DATASET, EMERALD_RANK, FILES, digest,
+                                read_snapshot, validate_scope, write_json)
 
 PUBLIC_DATASETS = {
     'combined': ('draft', ALL_RANKS),
     EMERALD_DATASET: (f'{EMERALD_DATASET}/draft', EMERALD_RANK),
 }
+
+
+def publish_patch_input(source, published_data, dataset, component, rank, stats_source):
+    patch = component['patch']
+    base = component['base']
+    if not base.startswith('data/'):
+        raise ValueError(f'Invalid snapshot path for patch {patch}.')
+    directory = (source / base).resolve()
+    if not directory.is_relative_to(source / 'data'):
+        raise ValueError(f'Patch {patch} snapshot is outside the data directory.')
+    if digest((directory / 'snapshot.json').read_bytes()) != component['snapshotSha256']:
+        raise ValueError(f'Patch {patch} no longer matches the combined dataset.')
+    catalog, profiles, _ = read_snapshot(directory, patch)
+    validate_scope(catalog, stats_source, rank=rank)
+
+    # The client needs aggregate statistics, rather than archived capture files.
+    target = published_data / 'patch-inputs' / dataset / patch
+    champions = [{**{field: champion[field] for field in ('id', 'name', 'key')},
+                  'roles': {role: {field: stats[field] for field in ('games', 'wr')}
+                            for role, stats in champion['roles'].items()}}
+                 for champion in catalog['champions']]
+    write_json(target / 'catalog.json', {
+        'patch': patch, 'rank': rank, 'asOf': catalog['asOf'], 'champions': champions,
+    })
+    for role, values in profiles.items():
+        write_json(target / f'{role}.json', {'profiles': {
+            champion: {field: profile[field] for field in ('games', 'wr', 'enemy', 'ally')}
+            for champion, profile in values.items()
+        }})
+    return {'patch': patch, 'base': 'data/' + target.relative_to(published_data).as_posix(),
+            'files': {name: digest((target / name).read_bytes()) for name in FILES}}
 
 
 def build_pages(source, destination):
@@ -35,20 +67,26 @@ def build_pages(source, destination):
                 entry.get('rank', rank) != rank or catalog['rank'] != rank or
                 entry['patches'] != catalog['patches'] or entry['patches'] != combined['patches']):
             raise ValueError(f'The {rank} dataset index does not match its combined snapshot or patch coverage.')
-        datasets.append((entry, directory))
+        if [component['patch'] for component in catalog['components']] != entry['patches']:
+            raise ValueError(f'The {rank} dataset does not identify all its patch snapshots.')
+        datasets.append((entry, directory, catalog))
 
     def exclude_data(directory, _names):
         return {'data'} if Path(directory) == source else set()
 
     shutil.copytree(source, destination, ignore=exclude_data)
     published_data = destination / 'data'
-    for _, directory in datasets:
+    public_entries = []
+    for entry, directory, catalog in datasets:
         (published_data / directory).mkdir(parents=True)
         for name in FILES:
             shutil.copyfile(source_data / directory / name, published_data / directory / name)
+        inputs = [publish_patch_input(source, published_data, entry['id'], component, catalog['rank'], catalog['source'])
+                  for component in catalog['components']]
+        public_entries.append({**entry, 'patchInputs': inputs})
     write_json(published_data / 'datasets.json', {
         'schemaVersion': index['schemaVersion'], 'default': index['default'],
-        'datasets': [entry for entry, _ in datasets],
+        'datasets': public_entries,
     })
 
 
