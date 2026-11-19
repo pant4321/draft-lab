@@ -1,5 +1,4 @@
-"""Stage the website, combined datasets, and public patch stats."""
-import argparse
+"""Stage assets, combined datasets, and public patch stats for the web build."""
 import json
 from pathlib import Path
 import shutil
@@ -44,10 +43,11 @@ def publish_patch_input(source, published_data, dataset, component, rank, stats_
             'files': {name: digest((target / name).read_bytes()) for name in FILES}}
 
 
-def build_pages(source, destination):
+def build_pages(source, destination, *, static_source=None):
     source = Path(source).resolve()
     destination = Path(destination).resolve()
-    if destination.is_relative_to(source):
+    static_source = Path(static_source).resolve() if static_source is not None else source
+    if destination.is_relative_to(source) or destination.is_relative_to(static_source):
         raise ValueError('Pages output must be outside the website source directory.')
 
     source_data = source / 'data'
@@ -72,9 +72,9 @@ def build_pages(source, destination):
         datasets.append((entry, directory, catalog))
 
     def exclude_data(directory, _names):
-        return {'data'} if Path(directory) == source else set()
+        return {'data'} if Path(directory) == static_source else set()
 
-    shutil.copytree(source, destination, ignore=exclude_data)
+    shutil.copytree(static_source, destination, ignore=exclude_data)
     published_data = destination / 'data'
     public_entries = []
     for entry, directory, catalog in datasets:
@@ -88,10 +88,3 @@ def build_pages(source, destination):
         'schemaVersion': index['schemaVersion'], 'default': index['default'],
         'datasets': public_entries,
     })
-
-
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('destination', type=Path)
-    args = parser.parse_args()
-    build_pages(Path(__file__).resolve().parents[1] / 'dist', args.destination)

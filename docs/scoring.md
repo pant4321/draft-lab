@@ -71,7 +71,7 @@ Open **Suggested bans for your pool** beside **+ Add ban** at any point in the d
 
 Hover, focus, or tap a blindability number to inspect role-specific matchup and synergy distributions. Portraits mark raw deltas; game counts are available in their labels. Graphs apply a 0.5% common-opponent floor, unlike the safety score, and estimate spread after subtracting binomial sampling noise. Insufficient coverage or unresolved variance hides the curve. Graph spread never enters draft edge or blindability.
 
-Exact implementations are in [draft-math.mjs](../dist/draft-math.mjs), [team-edge.mjs](../dist/team-edge.mjs), and [blindability.mjs](../dist/blindability.mjs).
+Exact implementations are in [draft-math.ts](../web/src/domain/draft-math.ts), [team-edge.ts](../web/src/domain/team-edge.ts), and [blindability.ts](../web/src/domain/blindability.ts).
 
 ## Limits
 

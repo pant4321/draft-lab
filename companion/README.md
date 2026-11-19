@@ -40,7 +40,7 @@ Version 0.1.3 changes blindability to counterpick safety only: negative enemy de
 
 Client state is read through `GET /lol-gameflow/v1/gameflow-phase` and `GET /lol-champ-select/v1/session`. No client write endpoints are used. The API response exposed to the browser contains draft champion IDs and role hints, with names, PUUIDs, account IDs, and local client credentials removed. The browser API checks its session token, Host, and Origin. Strict CORS allows `https://draftedge.website` and `https://pant4321.github.io` with `X-DraftLab-Session` for `GET /api/state` and `POST /api/quit`. Other origins, preflight methods, headers, paths, and non-loopback bindings are rejected. The same loopback origin and authenticated native smoke tests without an Origin header remain supported. GitHub project paths share their account's origin. Bridge protocol 1 is separate from the executable version so compatible website changes need no native update. Riot TLS validation uses the bundled certificate from [Riot's developer docs](https://developer.riotgames.com/docs/lol#league-client-api). Certificate chain validation stays enabled.
 
-The live site's Google Analytics stream measures page visits. Draft state, searches, pools, League identities, and companion credentials are not sent as analytics events. Tag configuration and sanitization are in [analytics.mjs](../dist/analytics.mjs); see the [privacy notice](https://pant4321.github.io/draft-lab/privacy.html).
+The live site's Google Analytics stream measures page visits. Draft state, searches, pools, League identities, and companion credentials are not sent as analytics events. Tag configuration and sanitization are in [analytics.ts](../web/src/services/analytics.ts). See the [privacy notice](https://pant4321.github.io/draft-lab/privacy.html).
 
 This first release targets standard role-based Summoner's Rift drafts. Other champion-select modes and unusual client schema changes need separate validation. The local League Client API is not officially supported for third-party apps, and Riot asks developers to register products and their API usage. See [Riot's current guidance](https://developer.riotgames.com/docs/lol#league-client-api).
 
@@ -52,6 +52,7 @@ On Windows with Python 3.10+, Node 24+, and access to the private dataset submod
 
 ```
 git submodule update --init -- dist/data
+npm ci
 python -m venv .venv-companion
 .venv-companion\Scripts\python -m pip install -r companion/requirements-build.txt
 .venv-companion\Scripts\python companion/build.py

@@ -1,9 +1,9 @@
-import test from 'node:test';
+import {test} from 'vitest';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {emptyDraft,validateDraft} from '../dist/draft-math.mjs';
-import {mergeClientSnapshot,combineRoleHints} from '../dist/draft-sync.mjs';
-import {moveDraftChampion} from '../dist/draft-roles.mjs';
+import {emptyDraft,validateDraft} from '../web/src/domain/draft-math.ts';
+import {mergeClientSnapshot,combineRoleHints} from '../web/src/domain/draft-sync.ts';
+import {moveDraftChampion} from '../web/src/domain/draft-roles.ts';
 const catalog=new Map(JSON.parse(readFileSync(new URL('../dist/data/draft/catalog.json',import.meta.url))).champions.map(c=>[c.id,c]));
 const snapshot={sessionId:'test',playerRole:'jungle',playerChampion:35,allies:[{id:516,role:'top'},{id:103,role:'middle'}],enemies:[{id:64},{id:58}],bans:[111]};
 

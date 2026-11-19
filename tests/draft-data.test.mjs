@@ -1,7 +1,7 @@
-import test from 'node:test';
+import {test} from 'vitest';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {ROLES,emptyDraft,rankDraft} from '../dist/draft-math.mjs';
+import {ROLES,emptyDraft,rankDraft} from '../web/src/domain/draft-math.ts';
 const read=name=>JSON.parse(readFileSync(new URL('../dist/data/draft/'+name+'.json',import.meta.url)));
 test('collected profiles cover every champion and contain valid role-specific pair samples',()=>{
  const catalog=read('catalog'),ids=new Set(catalog.champions.map(c=>c.id)),covered=new Set();

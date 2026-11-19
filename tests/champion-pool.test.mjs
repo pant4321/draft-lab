@@ -1,8 +1,8 @@
-import test from 'node:test';
+import {test} from 'vitest';
 import assert from 'node:assert/strict';
-import {emptyPools,cleanPools,loadPools,savePools,POOL_STORAGE,poolSections,prioritizePool} from '../dist/champion-pool.mjs';
-import {emptyDraft} from '../dist/draft-math.mjs';
-import {recommendationList} from '../dist/draft-list.mjs';
+import {emptyPools,cleanPools,loadPools,savePools,POOL_STORAGE,poolSections,prioritizePool} from '../web/src/domain/champion-pool.ts';
+import {emptyDraft} from '../web/src/domain/draft-math.ts';
+import {recommendationList} from '../web/src/domain/draft-list.ts';
 
 const champions=new Map([1,2,3,4].map(id=>[id,{id,name:'Champion '+id}]));
 const profiles=Object.fromEntries([1,2,3,4].map(id=>[id,{

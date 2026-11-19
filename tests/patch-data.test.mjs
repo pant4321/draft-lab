@@ -1,9 +1,9 @@
-import test from 'node:test';
+import {test} from 'vitest';
 import assert from 'node:assert/strict';
 import {readFileSync,readdirSync} from 'node:fs';
 import {createHash} from 'node:crypto';
-import {ROLES} from '../dist/draft-math.mjs';
-import {combinePatchCatalogs,combinePatchRole} from '../dist/patch-stats.mjs';
+import {ROLES} from '../web/src/domain/draft-math.ts';
+import {combinePatchCatalogs,combinePatchRole} from '../web/src/domain/patch-stats.ts';
 
 const root=new URL('../dist/data/',import.meta.url),read=path=>JSON.parse(readFileSync(new URL(path,root),'utf8'));
 const near=(a,b)=>assert.ok(Math.abs(a-b)<1e-8,`${a} vs ${b}`);

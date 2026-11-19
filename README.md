@@ -28,23 +28,30 @@ These scores rank draft fit. Use the rank dropdown at the top right to switch be
 
 ## Run locally
 
-Requires Node, Python, and access to the private dataset submodule. The site runs directly from the checkout.
+Requires Node 24 or later, Python 3.10 or later, and access to the private dataset submodule.
 
 ```sh
 git submodule update --init -- dist/data
+npm ci
 npm run dev
 ```
 
-Open [localhost:8765](http://127.0.0.1:8765/). The static website lives in `dist/`.
+Open [localhost:8765](http://127.0.0.1:8765/). Vite serves the React frontend in `web/` with the same staged public data used in production. Restart the dev server after updating the dataset checkout.
+
+Draft actions and scoring live in `web/src/domain/`. The dataset, browser storage, analytics, and companion adapters live in `web/src/services/`. React components render the draft and dispatch actions through the app state.
 
 ## Check and publish
 
 ```sh
+npm run typecheck
 npm test
 python -m unittest discover -s companion/tests
 python -m unittest discover -s tests/python
+npx playwright install chromium
+npm run build
+npm run test:e2e
 ```
 
-Pushes to `main` check out the pinned datasets, run these checks, and deploy the site with the combined browser files. See [AGENTS.md](AGENTS.md) for asset-cache versioning and repository rules.
+Pushes to `main` check out the pinned datasets, run these checks, and deploy `build/pages` to GitHub Pages. The browser suite serves that build at both the custom-domain root and the GitHub Pages project path. See [AGENTS.md](AGENTS.md) for repository rules.
 
-When updating the website icon, refresh the `v` query for `favicon.ico` on both HTML pages and for `assets/draft-lab-mark.png` in the homepage header. Use the first 12 SHA-256 characters of each binary file.
+When updating the website icon, refresh the `v` query for `favicon.ico` in both HTML files and for `assets/draft-lab-mark.png` in the React header. Use the first 12 SHA-256 characters of each binary file. Vite versions the JS and CSS bundles automatically.

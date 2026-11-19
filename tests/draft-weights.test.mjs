@@ -1,8 +1,8 @@
-import test from 'node:test';
+import {test} from 'vitest';
 import assert from 'node:assert/strict';
-import {ROLES,emptyDraft,rankDraft,scoreCandidate} from '../dist/draft-math.mjs';
-import {recommendationList} from '../dist/draft-list.mjs';
-import {defaultMultipliers,cleanMultipliers,loadMultipliers,saveMultipliers,customMultipliers,WEIGHTS_STORAGE} from '../dist/draft-weights.mjs';
+import {ROLES,emptyDraft,rankDraft,scoreCandidate} from '../web/src/domain/draft-math.ts';
+import {recommendationList} from '../web/src/domain/draft-list.ts';
+import {defaultMultipliers,cleanMultipliers,loadMultipliers,saveMultipliers,customMultipliers,WEIGHTS_STORAGE} from '../web/src/domain/draft-weights.ts';
 const near=(a,b)=>assert.ok(Math.abs(a-b)<1e-9,`${a} vs ${b}`);
 const profile=(id,enemy={},ally={},wr=.5)=>({id,role:'jungle',enemy,ally,wr});
 test('role multipliers weight each sample-adjusted synergy/counter term independently, preserving signs and optional base WR',()=>{

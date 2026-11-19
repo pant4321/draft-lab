@@ -1,8 +1,13 @@
-import test from 'node:test';
+import {test} from 'vitest';
 import assert from 'node:assert/strict';
-import {groupSpread,estimateBlindSpread,counterpickRisk,estimateCounterSafety,roleBlindability,remainingCounters,suggestedPoolBans} from '../dist/blindability.mjs';
-import {stackMatchups,matchupSpreadGraph} from '../dist/matchup-spread.mjs';
-import {ROLES,emptyDraft,rankDraft} from '../dist/draft-math.mjs';
+import {groupSpread,estimateBlindSpread,counterpickRisk,estimateCounterSafety,roleBlindability,remainingCounters,suggestedPoolBans} from '../web/src/domain/blindability.ts';
+import {createElement} from 'react';
+import {renderToStaticMarkup} from 'react-dom/server';
+import {MatchupChart} from '../web/src/components/Spread.tsx';
+import {stackMatchups} from '../web/src/domain/matchup-spread.ts';
+import {ROLES,emptyDraft,rankDraft} from '../web/src/domain/draft-math.ts';
+const matchupSpreadGraph=(info,roster,id,kind,role)=>renderToStaticMarkup(createElement(MatchupChart,{info,roster,champion:roster.get(id),kind,role})).replaceAll('<!-- -->','');
+
 const near=(a,b)=>assert.ok(Math.abs(a-b)<1e-8,`${a} != ${b}`);
 const champions=[1,2,3,4,5].map(id=>({id,roles:Object.fromEntries(ROLES.map(r=>[r,{pickRate:20}]))}));
 function fixture(id,scale=1,n=10001){

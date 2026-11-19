@@ -1,8 +1,8 @@
-import test from 'node:test';
+import {test} from 'vitest';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
-import {DatasetStore} from '../dist/datasets.mjs';
-import {ROLES} from '../dist/draft-math.mjs';
+import {DatasetStore} from '../web/src/services/datasets.ts';
+import {ROLES} from '../web/src/domain/draft-math.ts';
 
 function fixture(){
  const bodies=new Map(),calls=[];

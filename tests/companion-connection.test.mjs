@@ -1,7 +1,7 @@
-import test from 'node:test';
+import {test} from 'vitest';
 import assert from 'node:assert/strict';
-import {prepareCompanionSession,loopbackPermission} from '../dist/companion-session.mjs';
-import {connectCompanion} from '../dist/companion.mjs';
+import {prepareCompanionSession,loopbackPermission} from '../web/src/services/companion-session.ts';
+import {createCompanionClient} from '../web/src/services/companion.ts';
 const token='a'.repeat(43),live='https://draftedge.website/';
 function storage(){const values=new Map();return {getItem:key=>values.get(key)??null,setItem:(key,value)=>values.set(key,value),removeItem:key=>values.delete(key)};}
 function page(href=live){
@@ -31,93 +31,145 @@ test('invalid launch cannot reuse a previous token; session storage failure stil
  Object.defineProperty(blocked,'sessionStorage',{get(){throw Error('blocked');}});
  assert.equal(prepareCompanionSession(blocked).port,8767);assert.equal(blocked.location.href,live);
 });
-function fixture(permissionState='prompt'){
- const elements=Object.fromEntries(['companion-bar','companion-status','live-sync','connect-companion','quit-companion','companion-connect','connection-connect','connection-help','connection-progress','connection-close','connection-later','companion-details','companion-chip-label','pause-companion','companion-menu-toggle'].map(id=>[id,{hidden:false,disabled:false,checked:false,open:false,dataset:{},attributes:{},setAttribute(name,value){this.attributes[name]=value;},addEventListener(){},showModal(){this.open=true;},close(){this.open=false;},focus(){}}]));
- const requests=[],timers=new Map(),states=[],snapshots=[];let nextTimer=0;
- const permission={state:permissionState,addEventListener(_name,callback){this.change=callback;}};
- const environment={document:{getElementById:id=>elements[id]},navigator:{permissions:{async query({name}){assert.equal(name,'loopback-network');return permission;}}},
-  sessionStorage:storage(),setTimeout(callback){timers.set(++nextTimer,callback);return nextTimer;},clearTimeout(id){timers.delete(id);},
-  async fetch(url,options){requests.push({url,options});return {ok:true,status:200,json:async()=>({bridgeProtocol:1,revision:1,status:'champ_select',message:'Champion select connected',snapshot:{allies:[{id:516,role:'top'}]}})};}};
- const connection=connectCompanion(value=>states.push(value),value=>snapshots.push(value),{token,origin:'http://127.0.0.1:8766'},environment);
- return {elements,requests,timers,states,snapshots,permission,environment,connection};
+
+function fixture(permissionState = 'prompt') {
+ const requests = [], timers = new Map(), states = [], snapshots = [];
+ let nextTimer = 0;
+ const permission = {
+  state: permissionState,
+  addEventListener(_name, callback) { this.change = callback; },
+  removeEventListener(_name, callback) { if (this.change === callback) this.change = null; },
+ };
+ const response = (revision = 1) => ({ ok: true, status: 200, json: async () => ({
+  bridgeProtocol: 1, revision, status: 'champ_select', message: 'Champion select connected',
+  snapshot: { sessionId: 'fake-session', allies: [{ id: 516, role: 'top', identity: 'discard' }],
+    playerIdentity: 'discard', enemies: [], bans: [] },
+ }) });
+ const environment = {
+  navigator: { permissions: { async query({ name }) { assert.equal(name, 'loopback-network'); return permission; } } },
+  sessionStorage: storage(),
+  setTimeout(callback, delay) { timers.set(++nextTimer, { callback, delay }); return nextTimer; },
+  clearTimeout(id) { timers.delete(id); },
+  async fetch(url, options) { requests.push({ url, options }); return response(); },
+ };
+ const client = createCompanionClient({ token, port: 8766, origin: 'http://127.0.0.1:8766' }, (state, snapshot) => {
+  states.push(state);
+  if (snapshot) snapshots.push(snapshot);
+ }, environment);
+ return { requests, timers, states, snapshots, permission, environment, client, response,
+  latest: () => states.at(-1) };
 }
-const settle=()=>new Promise(resolve=>setImmediate(resolve));
-test('first permission request waits for a click, then syncs directly to authenticated loopback; pause and resume work',async()=>{
- const f=fixture();await settle();assert.equal(f.requests.length,0);
- assert.equal(f.elements['companion-connect'].open,true);
- await f.elements['connect-companion'].onclick();
- assert.equal(f.requests.length,0,'Opening setup must not request browser permission.');
- await f.elements['connection-connect'].onclick();
- assert.equal(f.requests[0].url,'http://127.0.0.1:8766/api/state');
- assert.equal(f.requests[0].options.headers['X-DraftLab-Session'],token);
- assert.equal(f.requests[0].options.credentials,'omit');assert.equal(f.requests[0].options.targetAddressSpace,'loopback');
- assert.equal(f.requests[0].options.referrerPolicy,'no-referrer');assert.equal(f.snapshots.length,1);
- assert.equal(f.elements['connect-companion'].hidden,true);
- assert.equal(f.elements['companion-connect'].open,false);
- f.connection.pause();assert.equal(f.states.at(-1).syncing,false);
- f.connection.resume();assert.equal(f.states.at(-1).syncing,true);assert.equal(f.snapshots.length,2);
+
+test('permission waits for a click; authenticated loopback imports only draft fields and can pause and resume', async () => {
+ const f = fixture();
+ await f.client.start();
+ assert.equal(f.latest().prompt, true);
+ f.client.open();
+ assert.equal(f.requests.length, 0);
+ await f.client.connect();
+ const [request] = f.requests;
+ assert.equal(request.url, 'http://127.0.0.1:8766/api/state');
+ assert.equal(request.options.headers['X-DraftLab-Session'], token);
+ assert.equal(request.options.credentials, 'omit');
+ assert.equal(request.options.targetAddressSpace, 'loopback');
+ assert.equal(request.options.referrerPolicy, 'no-referrer');
+ assert.deepEqual(f.snapshots, [{ sessionId: 'fake-session', playerRole: null, playerChampion: null,
+  allies: [{ id: 516, role: 'top' }], enemies: [], bans: [] }]);
+ assert.equal(f.latest().control, 'Live');
+ assert.equal(f.latest().prompt, false);
+ assert.equal(f.latest().showConnect, false);
+ f.client.pause();
+ assert.equal(f.latest().syncing, false);
+ assert.equal(f.latest().control, 'Paused');
+ f.client.resume();
+ assert.equal(f.latest().syncing, true);
+ assert.equal(f.snapshots.length, 2);
+ assert.equal(f.requests.length, 1);
 });
 
-test('compact status and one-click pause follow actual connection state without extra requests',async()=>{
- const f=fixture();await settle();
- assert.equal(f.elements['companion-chip-label'].textContent,'League · Connect');
- assert.equal(f.elements['pause-companion'].disabled,true);
- await f.elements['connection-connect'].onclick();
- assert.equal(f.elements['companion-chip-label'].textContent,'League · Live');
- assert.equal(f.elements['pause-companion'].attributes['aria-label'],'Pause live sync');
- f.elements['pause-companion'].onclick();
- assert.equal(f.elements['companion-chip-label'].textContent,'League · Paused');
- assert.equal(f.states.at(-1).syncing,false);
- assert.equal(f.elements['pause-companion'].attributes['aria-label'],'Resume live sync');
- f.elements['pause-companion'].onclick();
- assert.equal(f.states.at(-1).syncing,true);assert.equal(f.requests.length,1);
- f.environment.fetch=async()=>({ok:false,status:403});
- await f.elements['connection-connect'].onclick();
- assert.equal(f.elements['companion-chip-label'].textContent,'League · Expired');
- assert.equal(f.elements['pause-companion'].disabled,true);
+test('granted access connects automatically, deduplicates polls, and cleans up on disposal', async () => {
+ const f = fixture('granted');
+ let complete;
+ f.environment.fetch = (url, options) => {
+  f.requests.push({ url, options });
+  return new Promise(resolve => { complete = resolve; });
+ };
+ await f.client.start();
+ f.client.open();
+ await f.client.connect();
+ assert.equal(f.requests.length, 1);
+ assert.equal(f.latest().prompt, false);
+ complete(f.response());
+ await new Promise(resolve => setImmediate(resolve));
+ assert.equal(f.latest().busy, false);
+ assert.equal(f.timers.size, 1);
+ f.timers.values().next().value.callback();
+ assert.equal(f.requests.length, 2);
+ f.client.dispose();
+ assert.equal(f.requests.at(-1).options.signal.aborted, true);
+ assert.equal(f.permission.change, null);
+ complete(f.response(2));
+ await new Promise(resolve => setImmediate(resolve));
+ assert.equal(f.timers.size, 0);
+ assert.equal(f.snapshots.length, 1);
 });
 
-test('opening connection setup and successful shutdown close the status dropdown',async()=>{
- const f=fixture();await settle();
- f.elements['companion-details'].open=true;f.elements['connect-companion'].onclick();
- assert.equal(f.elements['companion-details'].open,false);
- await f.elements['connection-connect'].onclick();
- f.elements['companion-details'].open=true;
- f.environment.fetch=async()=>({ok:true});await f.elements['quit-companion'].onclick();
- assert.equal(f.elements['companion-details'].open,false);
- assert.equal(f.elements['companion-chip-label'].textContent,'League · Closed');
- assert.equal(f.elements['pause-companion'].disabled,true);
+test('denied or unsupported permission keeps manual drafting available and expired sessions stop retrying', async () => {
+ assert.equal(await loopbackPermission({ permissions: { query() { throw Error('unsupported'); } } }), null);
+ const f = fixture('denied');
+ await f.client.start();
+ assert.equal(f.requests.length, 0);
+ assert.equal(f.latest().control, 'Blocked');
+ assert.match(f.latest().message, /site settings/);
+ f.client.dismiss();
+ assert.equal(f.latest().prompt, false);
+ f.client.open();
+ assert.equal(f.latest().prompt, true);
+ assert.equal(f.requests.length, 0);
+ f.environment.sessionStorage.setItem('draftlab-companion-v1', 'session');
+ f.environment.fetch = async () => ({ ok: false, status: 403 });
+ await f.client.connect();
+ assert.equal(f.latest().control, 'Expired');
+ assert.equal(f.latest().syncing, false);
+ assert.match(f.latest().progress, /expired/);
+ assert.equal(f.timers.size, 0);
+ assert.equal(f.environment.sessionStorage.getItem('draftlab-companion-v1'), null);
 });
-test('granted access reconnects automatically; repeated clicks never start parallel polling',async()=>{
- const f=fixture('granted');await settle();assert.equal(f.requests.length,1);
- assert.equal(f.elements['companion-connect'].open,false,'An existing grant must not show setup.');
- let finish;f.environment.fetch=async()=>new Promise(resolve=>{finish=resolve;});
- const first=f.elements['connect-companion'].onclick();await f.elements['connect-companion'].onclick();
- finish({ok:true,status:200,json:async()=>({bridgeProtocol:1,revision:2,status:'connected'})});await first;
- assert.equal(f.timers.size,1);
+
+test('a transient failure schedules reconnect and imports again when the bridge returns', async () => {
+ const f = fixture();
+ await f.client.start();
+ await f.client.connect();
+ f.environment.fetch = async () => { throw Error('offline'); };
+ await f.timers.values().next().value.callback();
+ assert.equal(f.latest().control, 'Offline');
+ assert.equal(f.latest().syncing, false);
+ assert.equal(f.timers.size, 1);
+ const retry = f.timers.values().next().value;
+ assert.equal(retry.delay, 3000);
+ f.environment.fetch = async () => f.response();
+ await retry.callback();
+ assert.equal(f.latest().control, 'Live');
+ assert.equal(f.snapshots.length, 2);
 });
-test('denied or unsupported permissions do not loop requests; unavailable sessions keep manual drafting usable',async()=>{
- assert.equal(await loopbackPermission({permissions:{query(){throw Error('unsupported');}}}),null);
- const f=fixture('denied');await settle();assert.equal(f.requests.length,0);
- assert.match(f.elements['companion-status'].textContent,/site settings/);
- assert.equal(f.elements['companion-connect'].open,true);assert.match(f.elements['connection-help'].textContent,/blocked/);
- f.environment.fetch=async()=>({ok:false,status:403});
- await f.elements['connection-connect'].onclick();assert.equal(f.states.at(-1).syncing,false);
- assert.match(f.elements['companion-status'].textContent,/expired/);assert.equal(f.timers.size,0);
- assert.match(f.elements['connection-progress'].textContent,/expired/);assert.equal(f.elements['connection-connect'].disabled,false);
-});
-test('connection setup can be dismissed for manual drafting and reopened without requesting permission',async()=>{
- const f=fixture();await settle();
- f.elements['connection-later'].onclick();assert.equal(f.elements['companion-connect'].open,false);
- f.elements['connect-companion'].onclick();assert.equal(f.elements['companion-connect'].open,true);
- f.elements['connection-close'].onclick();assert.equal(f.elements['companion-connect'].open,false);
- assert.equal(f.requests.length,0);assert.equal(f.states.at(-1).syncing,false);
-});
-test('quit reports failures honestly and only stops polling after a successful authenticated shutdown',async()=>{
- const f=fixture('granted');await settle();
- f.environment.fetch=async()=>{throw Error('offline');};await f.elements['quit-companion'].onclick();
- assert.match(f.elements['companion-status'].textContent,/Could not close/);assert.equal(f.timers.size,1);
- f.environment.fetch=async(url,options)=>{assert.equal(url,'http://127.0.0.1:8766/api/quit');assert.equal(options.method,'POST');return {ok:true};};
- await f.elements['quit-companion'].onclick();assert.equal(f.timers.size,0);
- assert.equal(f.elements['companion-status'].textContent,'Companion closed');
+
+test('quit reports failures, then closes only after an authenticated shutdown succeeds', async () => {
+ const f = fixture();
+ await f.client.start();
+ await f.client.connect();
+ f.environment.fetch = async () => { throw Error('offline'); };
+ await f.client.quit();
+ assert.match(f.latest().message, /Could not close/);
+ assert.equal(f.timers.size, 1);
+ f.environment.fetch = async (url, options) => {
+  assert.equal(url, 'http://127.0.0.1:8766/api/quit');
+  assert.equal(options.method, 'POST');
+  assert.equal(options.headers['X-DraftLab-Session'], token);
+  return { ok: true };
+ };
+ await f.client.quit();
+ assert.equal(f.timers.size, 0);
+ assert.equal(f.latest().control, 'Closed');
+ assert.equal(f.latest().showConnect, false);
+ assert.equal(f.latest().connected, false);
 });

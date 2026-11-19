@@ -1,5 +1,6 @@
 """Build the local League bridge with its Python runtime and Riot CA."""
 from pathlib import Path
+import shutil
 import struct
 import subprocess
 import sys
@@ -21,7 +22,10 @@ def make_icon(path):
 
 
 def main():
-    subprocess.run(['node', '--test', *map(str, sorted((ROOT / 'tests').glob('*.test.mjs')))], cwd=ROOT, check=True)
+    npm = shutil.which('npm.cmd' if sys.platform == 'win32' else 'npm')
+    if not npm:
+        raise RuntimeError('Install Node.js and run npm ci before building the companion.')
+    subprocess.run([npm, 'test'], cwd=ROOT, check=True)
     subprocess.run([sys.executable, '-m', 'unittest', 'discover', '-s', 'companion/tests'], cwd=ROOT, check=True)
     subprocess.run([sys.executable, '-m', 'unittest', 'discover', '-s', 'tests/python'], cwd=ROOT, check=True)
     icon = ROOT / 'companion/assets/draftlab.ico'

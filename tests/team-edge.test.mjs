@@ -1,8 +1,8 @@
-import test from 'node:test';
+import {test} from 'vitest';
 import assert from 'node:assert/strict';
-import {ROLES,emptyDraft,scoreCandidate} from '../dist/draft-math.mjs';
-import {scoreTeamDraft} from '../dist/team-edge.mjs';
-import {defaultMultipliers} from '../dist/draft-weights.mjs';
+import {ROLES,emptyDraft,scoreCandidate} from '../web/src/domain/draft-math.ts';
+import {scoreTeamDraft} from '../web/src/domain/team-edge.ts';
+import {defaultMultipliers} from '../web/src/domain/draft-weights.ts';
 const near=(a,b)=>assert.ok(Math.abs(a-b)<1e-9,`${a} vs ${b}`);
 
 function fixture(){

@@ -1,8 +1,8 @@
-import test from 'node:test';
+import {test} from 'vitest';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {ROLES,emptyDraft,validateDraft,rankDraft} from '../dist/draft-math.mjs';
-import {assignTeamRoles,inferDraftRoles,moveDraftChampion,cleanRoleOverrides,selectDraftRole} from '../dist/draft-roles.mjs';
+import {ROLES,emptyDraft,validateDraft,rankDraft} from '../web/src/domain/draft-math.ts';
+import {assignTeamRoles,inferDraftRoles,moveDraftChampion,cleanRoleOverrides,selectDraftRole} from '../web/src/domain/draft-roles.ts';
 const champ=(id,roles)=>({id,roles:Object.fromEntries(Object.entries(roles).map(([role,games])=>[role,{games}]))});
 const catalog=new Map([champ(1,{top:600,middle:400}),champ(2,{top:990,middle:10}),champ(3,{jungle:1000}),champ(4,{bottom:1000}),champ(5,{support:1000})].map(c=>[c.id,c]));
 

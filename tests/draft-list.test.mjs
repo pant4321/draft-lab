@@ -1,9 +1,9 @@
-import test from 'node:test';
+import {test} from 'vitest';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {emptyDraft,rankDraft,ROLES} from '../dist/draft-math.mjs';
-import {recommendationList,sortPickerChampions,sortRecommendationRows} from '../dist/draft-list.mjs';
-import {roleBlindability} from '../dist/blindability.mjs';
+import {emptyDraft,rankDraft,ROLES} from '../web/src/domain/draft-math.ts';
+import {recommendationList,sortPickerChampions,sortRecommendationRows} from '../web/src/domain/draft-list.ts';
+import {roleBlindability} from '../web/src/domain/blindability.ts';
 
 const champions=new Map([[1,{id:1,name:'Zed',roles:{jungle:{pickRate:20}}}],
  [2,{id:2,name:'Ahri',roles:{jungle:{pickRate:20},middle:{pickRate:30}}}],

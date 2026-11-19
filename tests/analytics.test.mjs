@@ -1,7 +1,7 @@
-import test from 'node:test';
+import {test} from 'vitest';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {analyticsPage,startAnalytics,GOOGLE_TAG} from '../dist/analytics.mjs';
+import {analyticsPage,startAnalytics,GOOGLE_TAG} from '../web/src/services/analytics.ts';
 const live='https://draftedge.website/';
 test('analytics sends only the canonical live page and sanitized referrer, excluding tokens, search, and localhost',()=>{
  const value=analyticsPage({href:live+'?secret=x#anything'},'https://example.com/from?secret=y#token');
@@ -22,6 +22,6 @@ test('analytics initializes once without blocking the app, and honors the browse
  assert.equal(environment.dataLayer[0][0],'set');assert.equal(environment.dataLayer[0][1].page_location,live);
  assert.equal(startAnalytics({...environment,draftLabAnalyticsStarted:false,navigator:{globalPrivacyControl:true}}),false);
  assert.equal(startAnalytics({}),false);
- const entry=readFileSync(new URL('../dist/draft.mjs',import.meta.url),'utf8');
- assert.ok(entry.indexOf('const companionSession=prepareCompanionSession();')<entry.indexOf('startAnalytics();'));
+ const entry=readFileSync(new URL('../web/src/main.tsx',import.meta.url),'utf8');
+ assert.ok(entry.indexOf('const session = prepareCompanionSession();')<entry.indexOf('startAnalytics();'));
 });

@@ -1,6 +1,6 @@
-import test from 'node:test';
+import {test} from 'vitest';
 import assert from 'node:assert/strict';
-import {emptyDraft,rankDraft,scoreCandidate,pairContribution,validateDraft} from '../dist/draft-math.mjs';
+import {emptyDraft,rankDraft,scoreCandidate,pairContribution,validateDraft} from '../web/src/domain/draft-math.ts';
 const near=(a,b)=>assert.ok(Math.abs(a-b)<1e-9,`${a} vs ${b}`);
 function profile(id,enemy={},ally={},wr=.5){return {id,role:'jungle',wr,enemy,ally};}
 test('JG third pick uses both allies and all three revealed enemy roles',()=>{

@@ -33,7 +33,7 @@ npm test
 
 Replace the example patch number with the released patch you need. Already-saved patches are verified and skipped. Rerun the command with the same cache root to resume a backfill. Each explicit latest-patch refresh starts a new cache. Resume an interrupted refresh with `python dist/data/collect_draft.py` and the same cache and output paths. Failed collections publish no snapshot.
 
-Commit and push the reviewed dataset changes from `dist/data`. Then stage `dist/data` in the site repository to commit the new submodule revision. The Pages workflow verifies the saved data and stages the combined catalogs, role files, and their public index. It also publishes a checksummed stats-only bundle for each patch selected for a combined dataset. Those bundles power **Settings → Patches**. To inspect that output locally, run `python -m scripts.build_pages build/pages` with a fresh destination.
+Commit and push the reviewed dataset changes from `dist/data`. Then stage `dist/data` in the site repository to commit the new submodule revision. The Pages workflow verifies the saved data and stages the combined catalogs, role files, and their public index. It also publishes a checksummed stats-only bundle for each patch selected for a combined dataset. Those bundles power **Settings → Patches**. Run `npm run build` to inspect what gets published in `build/pages/data`. Vite copies the verified files from `build/web-public/data`.
 
 ## Riot API pilot
 
