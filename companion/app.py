@@ -21,7 +21,7 @@ from companion.pairing import LIVE_ORIGINS, PAIRING_PORTS, PendingPairings, allo
 from companion.updates import UpdateChecker
 from companion.windows_launch import WindowsActivation, parse_activation_args
 
-VERSION = "0.1.12"
+VERSION = "0.2.0"
 LIVE_SITE = "https://pant4321.github.io/draft-lab/"
 LIVE_ORIGIN = "https://pant4321.github.io"
 BRIDGE_PROTOCOL = 1
