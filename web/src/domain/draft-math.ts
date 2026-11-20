@@ -145,6 +145,7 @@ export function scoreCandidate(
     id: profile.id,
     role: profile.role,
     wr: profile.wr,
+    priorGames,
     base,
     counter,
     synergy,

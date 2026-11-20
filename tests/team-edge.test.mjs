@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {ROLES,emptyDraft,scoreCandidate} from '../web/src/domain/draft-math.ts';
 import {scoreTeamDraft} from '../web/src/domain/team-edge.ts';
 import {defaultMultipliers} from '../web/src/domain/draft-weights.ts';
+import {samplingRange} from '../web/src/domain/sampling.ts';
 const near=(a,b)=>assert.ok(Math.abs(a-b)<1e-9,`${a} vs ${b}`);
 
 function fixture(){
@@ -87,6 +88,46 @@ test('shared synergy uses a saved reverse direction and averages asymmetric dire
  const reverseOnly=scoreTeamDraft(draft,profiles,{ownChampion:2});
  assert.equal(reverseOnly.complete,true);near(reverseOnly.synergy,3);
  assert.equal(scoreTeamDraft(draft,profiles,{ownChampion:2,includeStrength:true}).score,null);
+});
+
+test('the team sample range follows directional averaging, shrinkage, role weights, and fixed base strength',()=>{
+ const {profiles}=fixture(),draft=emptyDraft();
+ draft.allies.top=1;draft.enemies.top=11;
+ const records=[[6,500,.55],[-2,2000,.52],[3,800,.54],[-1,1200,.51]];
+ const [forward,reverse,topCounter,jungleCounter]=records;
+ profiles.top[1].ally.jungle[2]=forward;
+ profiles.jungle[2].ally.top[1]=reverse;
+ profiles.top[1].enemy.top[11]=topCounter;
+ profiles.jungle[2].enemy.top[11]=jungleCounter;
+ const priorGames=400,multipliers={allies:{top:3},enemies:{top:2}};
+ const options={ownChampion:2,priorGames,multipliers};
+ const ranges=records.map(record=>samplingRange(record).map(bound=>bound*record[1]/(record[1]+priorGames)));
+ const estimate=scoreTeamDraft(draft,profiles,options);
+ const withBase=scoreTeamDraft(draft,profiles,{...options,includeStrength:true});
+ for(const end of [0,1]){
+  const synergy=2*(ranges[0][end]+ranges[1][end])/2;
+  const counters=2*(ranges[2][end]+ranges[3][end]);
+  near(estimate.sampleRange[end],synergy+counters);
+  near(withBase.sampleRange[end],withBase.base+synergy+counters);
+ }
+});
+
+test('the team sample range needs observed rates for each scored direction and skips ignored matchups',()=>{
+ const {profiles}=fixture(),draft=emptyDraft();
+ draft.allies.top=1;draft.enemies.top=11;
+ profiles.top[1].enemy.top[11]=[2,1000];
+ profiles.top[1].ally.jungle[2]=[2,1000];
+ const options={ownChampion:2,multipliers:{enemies:{top:0}}};
+ const unobserved=scoreTeamDraft(draft,profiles,options);
+ near(unobserved.score,1);
+ assert.equal(unobserved.sampleRange,null);
+
+ delete profiles.top[1].ally.jungle[2];
+ const reverse=scoreTeamDraft(draft,profiles,options);
+ const range=samplingRange(profiles.jungle[2].ally.top[1]);
+ reverse.sampleRange.forEach((bound,end)=>near(bound,range[end]/2));
+ assert.equal(scoreTeamDraft(draft,profiles,{...options,ignoredPicks:new Set([1])}).sampleRange,null);
+ assert.equal(scoreTeamDraft(emptyDraft(),profiles,{ownChampion:2,includeStrength:true}).sampleRange,null);
 });
 
 test('role corrections use profiles in the newly assigned roles and duplicate/banned previews are rejected',()=>{

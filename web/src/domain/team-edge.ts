@@ -1,4 +1,6 @@
-import type { Draft, LoadedProfiles, Role, ScoreOptions, Side } from './types';
+import { adjustedSamplingRange } from './sampling';
+import type { SamplingRange } from './sampling';
+import type { Draft, LoadedProfiles, Pair, Role, ScoreOptions, Side } from './types';
 
 type Position = { role: Role; id: number };
 type TeamTerm = {
@@ -73,6 +75,9 @@ export function scoreTeamDraft(
     synergy = 0,
     base = 0,
     ignored = 0;
+  let bounds: SamplingRange | null = [0, 0];
+  let hasSampledMatchup = false;
+
   function add(
     kind: TeamTerm['kind'],
     from: Position,
@@ -96,44 +101,64 @@ export function scoreTeamDraft(
     else if (kind === 'synergy') synergy += term.weighted;
     else base += term.weighted;
   }
+
+  function addMatchup(
+    kind: 'counter' | 'synergy',
+    from: Position,
+    to: Position,
+    records: readonly (Pair | undefined)[],
+    multiplier: number,
+  ) {
+    const effects = records.flatMap((record) => {
+      const pair = pairContribution(record, priorGames);
+      return pair ? [{ record, adjusted: pair.adjusted }] : [];
+    });
+    const count = effects.length;
+    add(
+      kind,
+      from,
+      to,
+      count ? effects.reduce((sum, pair) => sum + pair.adjusted, 0) / count : null,
+      multiplier,
+    );
+    if (!bounds || multiplier === 0 || !count) return;
+    let low = 0;
+    let high = 0;
+    for (const { record } of effects) {
+      const range = adjustedSamplingRange(record, priorGames);
+      if (!range) {
+        bounds = null;
+        return;
+      }
+      low += range[0];
+      high += range[1];
+    }
+    // Use the same directional average for both bounds as for the score.
+    bounds[0] += (low / count) * multiplier;
+    bounds[1] += (high / count) * multiplier;
+    hasSampledMatchup = true;
+  }
+
   for (let i = 0; i < picks.length; i++) {
     const a = picks[i];
     for (let j = i + 1; j < picks.length; j++) {
       const b = picks[j];
-      const forward = pairContribution(
-        a.profile?.ally?.[b.role]?.[b.id],
-        priorGames,
-      );
-      const reverse = pairContribution(
-        b.profile?.ally?.[a.role]?.[a.id],
-        priorGames,
-      );
-      // Shared synergy can also be read from the supported teammate's reverse record.
-      const available = [forward, reverse].filter((pair) => pair !== null);
-      const effect = available.length
-        ? available.reduce((sum, pair) => sum + pair.adjusted, 0) /
-          available.length
-        : null;
-      add(
+      addMatchup(
         'synergy',
         a,
         b,
-        effect,
+        [a.profile?.ally?.[b.role]?.[b.id], b.profile?.ally?.[a.role]?.[a.id]],
         (weight(multipliers, 'allies', a.role) +
           weight(multipliers, 'allies', b.role)) /
           2,
       );
     }
     for (const enemy of enemies) {
-      const effect = pairContribution(
-        a.profile?.enemy?.[enemy.role]?.[enemy.id],
-        priorGames,
-      );
-      add(
+      addMatchup(
         'counter',
         a,
         enemy,
-        effect?.adjusted ?? null,
+        [a.profile?.enemy?.[enemy.role]?.[enemy.id]],
         weight(multipliers, 'enemies', enemy.role),
       );
     }
@@ -151,11 +176,16 @@ export function scoreTeamDraft(
     }
   }
   const complete = missing.length === 0;
+  const sampleRange: SamplingRange | null =
+    complete && bounds && hasSampledMatchup
+      ? [bounds[0] + base, bounds[1] + base]
+      : null;
   return {
     counter: missing.some((t) => t.kind === 'counter') ? null : counter,
     synergy: missing.some((t) => t.kind === 'synergy') ? null : synergy,
     base: missing.some((t) => t.kind === 'base') ? null : base,
     score: complete ? counter + synergy + base : null,
+    sampleRange,
     complete,
     missing,
     terms,

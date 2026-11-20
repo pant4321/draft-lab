@@ -75,6 +75,9 @@
 .pick-name small{font-size:11px;line-height:1.2;margin-top:3px}
 
 .team-edge-parts dt{font-size:11px}
+.team-edge-estimate{text-align:right}
+.team-edge-sampling{display:block;color:var(--muted);font-size:11px;font-variant-numeric:tabular-nums}
+.team-edge-sampling span{white-space:nowrap}
 .small-label{font-size:10px}
 .data-info summary{font-size:12px}
 footer{display:grid;justify-content:stretch;gap:9px;font-size:10px}

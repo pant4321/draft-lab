@@ -231,6 +231,7 @@ export function TeamEdge({ lab }: { lab: DraftLab }) {
     [draft, profiles, loading, profileError, ownChampion, options],
   );
   const total = estimate?.ready ? estimate : null;
+  const sampleRange = total?.sampleRange;
   const note = profileError
     ? 'Team data unavailable. Try selecting your role again.'
     : total && !total.complete
@@ -240,21 +241,40 @@ export function TeamEdge({ lab }: { lab: DraftLab }) {
     <section className="team-edge" aria-labelledby="team-edge-title">
       <div className="team-edge-main">
         <h2 id="team-edge-title">Team draft edge</h2>
-        <output
-          id="team-edge-total"
-          className={'team-edge-total ' + color(total?.score)}
-          aria-live="polite"
-          aria-atomic="true"
-          title={
-            loading
-              ? 'Calculating team edge'
-              : ownChampion !== null && clientOwnChampion === null
-                ? 'Includes your selected champion preview'
-                : 'Current allied draft'
-          }
-        >
-          {display(total?.score)}
-        </output>
+        <div className="team-edge-estimate">
+          <output
+            id="team-edge-total"
+            className={'team-edge-total ' + color(total?.score)}
+            aria-live="polite"
+            aria-atomic="true"
+            title={
+              loading
+                ? 'Calculating team edge'
+                : ownChampion !== null && clientOwnChampion === null
+                  ? 'Includes your selected champion preview'
+                  : 'Current allied draft'
+            }
+          >
+            {display(total?.score)}
+          </output>
+          {total?.score != null && (
+            <span
+              className="team-edge-sampling"
+              title={
+                sampleRange
+                  ? 'Shows the low and high ends of the total team edge, accounting for how uncertain each matchup estimate is given the number of games played.'
+                  : 'The team edge range needs at least one matchup and enough data to estimate a range for every matchup that counts.'
+              }
+            >
+              Team edge range{' '}
+              <span>
+                {sampleRange
+                  ? `${signed(sampleRange[0])} to ${signed(sampleRange[1])}`
+                  : '—'}
+              </span>
+            </span>
+          )}
+        </div>
       </div>
       <dl className="team-edge-parts">
         <div>

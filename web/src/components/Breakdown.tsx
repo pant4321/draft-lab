@@ -132,7 +132,7 @@ export function ContributionBreakdown({
   const intervals = row.pairs
     .filter((pair) => pair.multiplier > 0)
     .flatMap((pair) => {
-      const range = contributionSamplingRange(pair, profile);
+      const range = contributionSamplingRange(pair, profile, row.priorGames);
       return range ? [{ pair, range }] : [];
     });
   return (

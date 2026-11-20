@@ -87,6 +87,10 @@ test('draft sampling offsets combine weighted matchup bounds for large and small
  assert.ok(Math.abs(result.down-(pick.score-weighted(0)))<1e-12);
  assert.ok(Math.abs(result.up-(weighted(1)-pick.score))<1e-12);
  assert.deepEqual(draftSamplingOffsets(scoreCandidate(profile,draft,{multipliers,includeStrength:true}),profile),result);
+ const unshrunk=scoreCandidate(profile,draft,{multipliers,priorGames:0});
+ const unshrunkRange=draftSamplingOffsets(unshrunk,profile);
+ assert.ok(Math.abs(unshrunkRange.down-(unshrunk.score-2*top[0]-support[0]))<1e-12);
+ assert.ok(Math.abs(unshrunkRange.up-(2*top[1]+support[1]-unshrunk.score))<1e-12);
  const ignored=scoreCandidate(profile,draft,{multipliers:{enemies:{top:0}}});
  assert.equal(ignored.smallSample,false);
  const large=draftSamplingOffsets(ignored,{ally:profile.ally});

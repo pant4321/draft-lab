@@ -2,7 +2,9 @@ import { pairContribution } from './draft-math';
 import type { ScoredCandidate } from './draft-math';
 import type { Pair, Profile, ScoredPair } from './types';
 
-export function samplingRange(pair: Pair | undefined): [number, number] | null {
+export type SamplingRange = [low: number, high: number];
+
+export function samplingRange(pair: Pair | undefined): SamplingRange | null {
   const [delta, games, observed] = pair ?? [];
   if (
     delta === undefined ||
@@ -34,17 +36,31 @@ export function samplingRange(pair: Pair | undefined): [number, number] | null {
   ];
 }
 
+export function adjustedSamplingRange(
+  pair: Pair | undefined,
+  priorGames?: number,
+): SamplingRange | null {
+  const range = samplingRange(pair);
+  if (!pair || !range) return null;
+  const games = pair[1];
+  return [
+    pairContribution([range[0], games], priorGames)!.adjusted,
+    pairContribution([range[1], games], priorGames)!.adjusted,
+  ];
+}
+
 export function contributionSamplingRange(
   pair: ScoredPair,
   profile?: Profile,
-): [number, number] | null {
+  priorGames?: number,
+): SamplingRange | null {
   if (!Number.isFinite(pair.weighted)) return null;
-  const rawRange = samplingRange(profile?.[pair.kind]?.[pair.role]?.[pair.id]);
-  return rawRange
-    ? ([rawRange[0], rawRange[1]].map(
-        (delta) =>
-          pairContribution([delta, pair.games])!.adjusted * pair.multiplier,
-      ) as [number, number])
+  const range = adjustedSamplingRange(
+    profile?.[pair.kind]?.[pair.role]?.[pair.id],
+    priorGames,
+  );
+  return range
+    ? [range[0] * pair.multiplier, range[1] * pair.multiplier]
     : null;
 }
 
@@ -54,7 +70,7 @@ export function draftSamplingOffsets(row: ScoredCandidate, profile?: Profile) {
   let down = 0,
     up = 0;
   for (const pair of pairs) {
-    const range = contributionSamplingRange(pair, profile);
+    const range = contributionSamplingRange(pair, profile, row.priorGames);
     if (!range || pair.weighted == null) return null;
     down += pair.weighted - range[0];
     up += range[1] - pair.weighted;

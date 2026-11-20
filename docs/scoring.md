@@ -27,7 +27,7 @@ The recommendation list defaults to **Draft Edge** with picks revealed and **Bli
 
 The **Sample Δ** column shows ± half the width of the Draft Edge range obtained by moving all active matchup contributions to their high or low sampling bounds together. Hover over a pick to see the separate upward and downward changes. This is a sensitivity range with base WR held fixed. A dash appears when there are no active contributions or one of them lacks the data to calculate a range. The warning next to a champion portrait marks an active matchup with fewer than 500 games.
 
-Open **Contribution sampling ranges** under a pick's breakdown for approximate 95% Wilson intervals on the same scale as the displayed matchup contributions. The calculation starts with the raw delta range for the pooled win rate, holding the expected rate fixed, then applies the normal sample adjustment and role weight to both ends. Each matchup range assumes independent games and a pooled binomial model. The overall sensitivity range allows the effects to move together and has no assigned confidence level.
+Open **Contribution sampling ranges** under a pick's breakdown for approximate 95% Wilson intervals on the same scale as the displayed matchup contributions. The calculation starts with the raw delta range for the pooled win rate, holding the expected rate fixed, then applies the normal sample adjustment and role weight to both ends. Each matchup range assumes independent games and a pooled binomial model. The overall sensitivity range allows the effects to move together and has no assigned confidence level. Strong shrinkage on very small samples can also produce narrow ranges on the score scale.
 
 ## Team draft edge
 
@@ -40,6 +40,8 @@ The team total includes the selected preview or your imported locked pick. It su
 A synergy pair averages the available directional sample-adjusted effects and uses the mean of its two role weights. A reverse record alone is sufficient. Counters use the opposing role's counter multiplier. Missing active data makes the total unavailable instead of presenting a partial sum as complete.
 
 An excluded champion contributes no counter or synergy terms to Team Draft Edge. Excluding an ally also omits their base strength.
+
+**Team edge range** shows the low and high ends of the total team edge, accounting for how uncertain each matchup estimate is given the number of games played. Each end combines the corresponding bounds for all active matchups using the same sample adjustment, role weights, and directional averaging as the point score. Base strength stays fixed if enabled. The range is unavailable if there are no active matchups or any contributing record lacks a valid observed win rate. Matchup records can share games, so the range describes score sensitivity. The saved aggregates do not contain the covariances needed to estimate variance for the total.
 
 ## Blindability
 
