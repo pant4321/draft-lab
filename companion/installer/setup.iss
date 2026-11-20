@@ -13,12 +13,16 @@ AppMutex=Local\DraftLabCompanion
 RestartApplications=no
 ChangesAssociations=yes
 UninstallDisplayIcon={app}\DraftLab.exe
-SetupIconFile=..\assets\draftlab.ico
+SetupIconFile=..\..\web\public\favicon.ico
 OutputBaseFilename=DraftEdgeCompanionSetup
 WizardStyle=modern
 
 [Files]
+#ifdef BundlePath
+Source: "{#BundlePath}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+#else
 Source: "{#ExecutablePath}"; DestDir: "{app}"; DestName: "DraftLab.exe"; Flags: ignoreversion
+#endif
 
 [Icons]
 Name: "{userprograms}\DraftEdge Companion"; Filename: "{app}\DraftLab.exe"; WorkingDir: "{app}"
@@ -30,3 +34,18 @@ Root: HKCU; Subkey: "Software\Classes\draftedge\shell\open\command"; ValueType: 
 
 [Run]
 Filename: "{app}\DraftLab.exe"; Description: "Open DraftEdge Companion"; Flags: nowait postinstall skipifsilent
+
+[Code]
+const
+  RunKey = 'Software\Microsoft\Windows\CurrentVersion\Run';
+  RunName = 'DraftEdge Companion';
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  Command: String;
+begin
+  if CurUninstallStep = usUninstall then
+    if RegQueryStringValue(HKCU, RunKey, RunName, Command) then
+      if CompareText(Command, '"' + ExpandConstant('{app}\DraftLab.exe') + '"') = 0 then
+        RegDeleteValue(HKCU, RunKey, RunName);
+end;

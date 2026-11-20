@@ -1,9 +1,11 @@
 from argparse import Namespace
 import os
 from pathlib import Path
+import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from urllib.parse import urlencode
 from uuid import uuid4
 
@@ -48,8 +50,10 @@ class ActivationTests(unittest.TestCase):
     def test_companion_startup_opens_only_the_launcher(self):
         args = Namespace(port=0, league_folder=None, ca_file=None, no_update_check=True,
                          ready_file=None, headless=False, no_browser=False)
-        with (patch("companion.app.Poller"), patch("companion.app.launcher") as launcher,
-              patch("companion.app.webbrowser.open_new_tab") as browser):
+        launcher = Mock()
+        with (patch("companion.app.Poller"),
+              patch.dict(sys.modules, {"companion.launcher": SimpleNamespace(launcher=launcher)}),
+              patch("webbrowser.open_new_tab") as browser):
             self.assertEqual(run(args), 0)
             launcher.assert_called_once()
             browser.assert_not_called()

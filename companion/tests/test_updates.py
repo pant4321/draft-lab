@@ -10,7 +10,7 @@ from unittest.mock import patch
 from urllib.error import HTTPError
 
 from companion.app import State
-from companion.updates import (INSTALLER_NAME, LATEST_API_URL, MAX_RESPONSE_BYTES, REPOSITORY_URL,
+from companion.updates import (INSTALLER_NAME, LATEST_API_URL, MAX_RESPONSE_BYTES, PORTABLE_NAME, REPOSITORY_URL,
                                UpdateChecker, check_latest, release_update, version_tuple)
 
 
@@ -60,6 +60,35 @@ class UpdateTests(unittest.TestCase):
         self.assertEqual(release_update(value, "0.1.3")["downloadUrl"], installer_url)
         value["assets"][-1]["browser_download_url"] = "https://example.com/setup.exe"
         self.assertEqual(release_update(value, "0.1.3")["downloadUrl"], value["assets"][0]["browser_download_url"])
+
+    def test_large_installers_can_auto_update_up_to_256_mib(self):
+        value = release()
+        url = f"{REPOSITORY_URL}/releases/download/{value['tag_name']}/{INSTALLER_NAME}"
+        digest = sha256(b"installer fixture").hexdigest()
+        installer = {"name": INSTALLER_NAME, "state": "uploaded", "browser_download_url": url,
+                     "digest": f"sha256:{digest}"}
+        value["assets"].append(installer)
+
+        mib = 1024 * 1024
+        for size in (64 * mib + 1, 256 * mib):
+            with self.subTest(size=size):
+                installer["size"] = size
+                update = release_update(value, "0.1.3")
+                self.assertEqual(update["installer"], {"size": size, "sha256": digest})
+
+        installer["size"] = 256 * mib + 1
+        update = release_update(value, "0.1.3")
+        self.assertNotIn("installer", update)
+        self.assertEqual(update["downloadUrl"], url)
+
+    def test_portable_bundle_is_a_manual_fallback(self):
+        value = release()
+        url = f"{REPOSITORY_URL}/releases/download/{value['tag_name']}/{PORTABLE_NAME}"
+        value["assets"].append({"name": PORTABLE_NAME, "state": "uploaded", "size": 18000000,
+                                "browser_download_url": url})
+        update = release_update(value, "0.1.3")
+        self.assertEqual(update["downloadUrl"], url)
+        self.assertNotIn("installer", update)
 
     def test_public_metadata_request_is_bounded_and_contains_no_authentication(self):
         with patch("companion.updates.urlopen", return_value=io.BytesIO(json.dumps(release()).encode())) as fetch:

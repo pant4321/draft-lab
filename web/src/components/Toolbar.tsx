@@ -500,8 +500,8 @@ export function CompanionDialog({
         {mode !== 'update' &&
           offer &&
           'If the app doesn’t open, install it or search Start for DraftEdge Companion. '}
-        <a href="https://github.com/pant4321/draft-lab/releases/latest/download/DraftLab.exe">
-          Portable download
+        <a href="https://github.com/pant4321/draft-lab/releases/latest">
+          Portable release
         </a>
       </p>
     </Dialog>

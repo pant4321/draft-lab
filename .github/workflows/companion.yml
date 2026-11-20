@@ -38,7 +38,7 @@ jobs:
       - name: Test and build
         run: python companion/build.py
       - name: Smoke test executable
-        run: python companion/smoke.py build/companion-release/DraftLab.exe
+        run: python companion/smoke.py build/companion-release/DraftLab/DraftLab.exe --gui
       - name: Install Inno Setup
         run: |
           $setup = Join-Path $env:RUNNER_TEMP 'innosetup-7.1.1-x64.exe'
@@ -59,7 +59,7 @@ jobs:
         with:
           name: DraftLab-Windows
           path: |
-            build/companion-release/DraftLab.exe
-            build/companion-release/DraftLab.exe.sha256
+            build/companion-release/DraftLab-portable.zip
+            build/companion-release/DraftLab-portable.zip.sha256
             build/companion-release/DraftEdgeCompanionSetup.exe
             build/companion-release/DraftEdgeCompanionSetup.exe.sha256

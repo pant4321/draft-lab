@@ -19,9 +19,10 @@ REPOSITORY_URL = "https://github.com/pant4321/draft-lab"
 LATEST_API_URL = "https://api.github.com/repos/pant4321/draft-lab/releases/latest"
 MAX_RESPONSE_BYTES = 512 * 1024
 INSTALLER_NAME = "DraftEdgeCompanionSetup.exe"
-PORTABLE_NAME = "DraftLab.exe"
+EXECUTABLE_NAME = "DraftLab.exe"
+PORTABLE_NAME = "DraftLab-portable.zip"
 UNINSTALL_KEY = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\DraftEdgeCompanion_is1"
-MAX_INSTALLER_BYTES = 64 * 1024 * 1024
+MAX_INSTALLER_BYTES = 256 * 1024 * 1024
 ASSET_HOSTS = {"github.com", "release-assets.githubusercontent.com", "objects.githubusercontent.com"}
 
 
@@ -42,7 +43,7 @@ def release_update(release, current_version):
     if version_tuple(latest) <= version_tuple(current_version):
         return {"status": "current", "latestVersion": latest}
     assets = release.get("assets")
-    for name in (INSTALLER_NAME, PORTABLE_NAME):
+    for name in (INSTALLER_NAME, PORTABLE_NAME, EXECUTABLE_NAME):
         download = f"{REPOSITORY_URL}/releases/download/{tag}/{name}"
         for asset in assets if isinstance(assets, list) else ():
             if (not isinstance(asset, dict) or asset.get("name") != name
@@ -80,7 +81,7 @@ def installed_executable():
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, UNINSTALL_KEY) as key:
             directory, _ = winreg.QueryValueEx(key, "InstallLocation")
         exe = Path(sys.executable).resolve(strict=True)
-        if (Path(directory) / PORTABLE_NAME).resolve(strict=True) == exe:
+        if (Path(directory) / EXECUTABLE_NAME).resolve(strict=True) == exe:
             return exe
     except (OSError, TypeError, ValueError):
         pass

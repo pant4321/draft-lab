@@ -3,6 +3,6 @@
 - Run `npm test` before pushing. Pushes to `main` deploy the staged site and its combined dataset to GitHub Pages after tests pass.
 - Edit the React and TypeScript frontend in `web/`. Run `npm run typecheck`, `npm run build`, and `npm run test:e2e` for frontend changes. Vite generates versioned JS and CSS filenames in `build/pages`.
 - Stage browser data through the Python publisher. Keep the private data submodule at `dist/data` outside Vite's public directory.
-- Companion changes also require `python -m unittest discover -s companion/tests`. Build with `python companion/build.py` and smoke-test the frozen executable with `python companion/smoke.py build/companion-release/DraftLab.exe` before distributing it.
+- Companion changes also require `python -m unittest discover -s companion/tests`. Build with `python companion/build.py` and smoke-test the frozen executable with `python companion/smoke.py build/companion-release/DraftLab/DraftLab.exe --gui` before distributing it.
 - Keep the League connection read-only and local. Never expose client credentials or player identities in browser state, logs, or release artifacts.
 - Dataset changes also require `python -m unittest discover -s tests/python`. Push them to the private data submodule and commit its updated revision in this repo. Completed per-patch snapshots are immutable and checksum-verified; derive combined stats offline without merging the overlapping historical window.

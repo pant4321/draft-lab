@@ -133,6 +133,7 @@ class Poller:
     def __init__(self, state, stop, certificate: Path, preferred=None, interval=1):
         self.state, self.stop, self.certificate = state, stop, certificate
         self.preferred, self.interval = preferred, interval
+        self.active_folder = preferred
         self.lockfile = None
         self.client = None
         self.next_search = 0
@@ -140,10 +141,15 @@ class Poller:
         self.session_id = None
 
     def tick(self):
+        preferred = self.preferred
+        if preferred != self.active_folder:
+            self.active_folder = preferred
+            self.lockfile = self.client = None
+            self.next_search = 0
         if self.lockfile is None or not self.lockfile.is_file():
             self.lockfile = None
             if time.monotonic() >= self.next_search:
-                self.lockfile = find_lockfile(self.preferred)
+                self.lockfile = find_lockfile(preferred)
                 self.next_search = time.monotonic() + 5
             if self.lockfile is None:
                 self.client = None

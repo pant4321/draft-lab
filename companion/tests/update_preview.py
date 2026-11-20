@@ -5,7 +5,8 @@ from pathlib import Path
 from types import SimpleNamespace
 import threading
 
-from companion.app import BridgeServer, State, launcher
+from companion.app import BridgeServer, State
+from companion.launcher import launcher
 from companion.updates import UpdateChecker
 
 

@@ -1,6 +1,7 @@
 """Exercise a frozen executable as a black box without changing the League client."""
 import argparse
 import json
+import os
 from pathlib import Path
 import subprocess
 import tempfile
@@ -12,24 +13,64 @@ from urllib.request import Request, urlopen
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from companion.app import VERSION, LIVE_SITE, LIVE_ORIGIN, LIVE_ORIGINS
+from companion.windows_launch import WindowsActivation
 
 
-def smoke(executable):
+def verify_window(pid, process, deadline):
+    import ctypes
+    from ctypes import wintypes
+
+    user = ctypes.windll.user32
+    enum_callback = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    user.EnumWindows.argtypes = [enum_callback, wintypes.LPARAM]
+    user.IsWindowVisible.argtypes = [wintypes.HWND]
+    user.GetWindowTextLengthW.argtypes = [wintypes.HWND]
+    user.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+    found = False
+
+    @enum_callback
+    def check(hwnd, _):
+        nonlocal found
+        owner = wintypes.DWORD()
+        user.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
+        if owner.value == pid and user.IsWindowVisible(hwnd) and user.GetWindowTextLengthW(hwnd):
+            found = True
+        return not found
+
+    while process.poll() is None and time.monotonic() < deadline:
+        user.EnumWindows(check, 0)
+        if found:
+            return
+        time.sleep(.1)
+    raise RuntimeError('The frozen companion did not show its launcher window.')
+
+
+def smoke(executable, *, gui=False):
+    if gui:
+        with WindowsActivation() as activation:
+            if not activation.primary:
+                raise RuntimeError('Close DraftEdge Companion before testing the launcher.')
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         ready = root / 'ready.json'
         # A deliberately invalid fixture prevents discovery of the user's League client.
         (root / 'lockfile').write_text('fixture', encoding='ascii')
-        process = subprocess.Popen([str(Path(executable).resolve(strict=True)), '--headless', '--no-browser',
-                                    '--no-update-check', '--port', '0', '--ready-file', str(ready),
-                                    '--league-folder', str(root)])
+        args = [str(Path(executable).resolve(strict=True)), '--no-update-check', '--port', '0',
+                '--ready-file', str(ready), '--league-folder', str(root)]
+        if not gui:
+            args.append('--headless')
+        process = subprocess.Popen(args, env={**os.environ, 'LOCALAPPDATA': str(root)})
         try:
             deadline = time.monotonic() + 45
             while not ready.is_file():
                 if process.poll() is not None or time.monotonic() > deadline:
                     raise RuntimeError('Companion did not start.')
                 time.sleep(.1)
-            launch = urlsplit(json.loads(ready.read_text())['url'])
+            launch_info = json.loads(ready.read_text())
+            if gui:
+                verify_window(launch_info['pid'], process, deadline)
+                print('Frozen launcher window opened.')
+            launch = urlsplit(launch_info['url'])
             assert launch.scheme + '://' + launch.netloc + launch.path == LIVE_SITE
             params = parse_qs(launch.fragment)
             origin = 'http://127.0.0.1:' + params['port'][0]
@@ -68,7 +109,9 @@ def smoke(executable):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('executable', type=Path)
-    smoke(parser.parse_args().executable)
+    parser.add_argument('--gui', action='store_true', help='Also verify the Windows launcher opens.')
+    args = parser.parse_args()
+    smoke(args.executable, gui=args.gui)
 
 
 if __name__ == '__main__':

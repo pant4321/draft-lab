@@ -12,12 +12,12 @@ import sys
 import threading
 import time
 from urllib.parse import urlsplit, urlencode
-import webbrowser
 
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from companion.lcu import Poller
 from companion.pairing import LIVE_ORIGINS, PAIRING_PORTS, PendingPairings, allowed_origin
+from companion.preferences import read_settings, settings_path
 from companion.updates import UpdateChecker
 from companion.windows_launch import WindowsActivation, parse_activation_args
 
@@ -201,100 +201,6 @@ def resource_root():
     return Path(sys._MEIPASS) if getattr(sys, "frozen", False) else Path(__file__).resolve().parent.parent
 
 
-def settings_path():
-    return Path(os.environ.get("LOCALAPPDATA", str(Path.home() / ".local/share"))) / "DraftLab" / "settings.json"
-
-
-def read_settings():
-    try:
-        value = json.loads(settings_path().read_text(encoding="utf-8"))
-        return value if isinstance(value, dict) else {}
-    except (OSError, ValueError):
-        return {}
-
-
-def launcher(server, poller, stop, updates, title="DraftEdge Companion", *, activation=None):
-    import tkinter as tk
-    from tkinter import filedialog, ttk
-    window = tk.Tk()
-    window.title(title)
-    window.geometry("460x285")
-    window.resizable(False, False)
-    window.configure(bg="#101719")
-    icon = resource_root() / "companion/assets/draftlab.ico"
-    if icon.is_file():
-        window.iconbitmap(str(icon))
-    tk.Label(window, text="DRAFTEDGE", bg="#101719", fg="#b2e7c3", font=("Segoe UI", 19, "bold")).pack(pady=(22, 8))
-    message = tk.StringVar(value="Starting companion")
-    tk.Label(window, textvariable=message, bg="#101719", fg="#e5efeb", font=("Segoe UI", 12)).pack(pady=7)
-    tk.Label(window, text="Leave this open while drafting.", bg="#101719", fg="#91a6a5", font=("Segoe UI", 10)).pack(pady=4)
-    buttons = tk.Frame(window, bg="#101719")
-    buttons.pack(pady=18)
-
-    def choose_folder():
-        folder = filedialog.askdirectory(title="Choose the League of Legends install folder")
-        if folder:
-            poller.preferred = Path(folder)
-            poller.lockfile, poller.client, poller.next_search = None, None, 0
-            path = settings_path()
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(json.dumps({"leagueFolder": folder}), encoding="utf-8")
-
-    ttk.Button(buttons, text="Open DraftEdge", command=lambda: webbrowser.open_new_tab(server.launch_url)).pack(side="left", padx=5)
-    ttk.Button(buttons, text="League folder…", command=choose_folder).pack(side="left", padx=5)
-    ttk.Button(buttons, text="Quit", command=server.request_stop).pack(side="left", padx=5)
-    update_row = tk.Frame(window, bg="#101719")
-    update_row.pack(fill="x", padx=24, pady=(0, 12))
-    installed_version = updates.current_version
-    update_message = tk.StringVar(value=f"v{installed_version} · Checking for updates…")
-    tk.Label(update_row, textvariable=update_message, bg="#101719", fg="#91a6a5", font=("Segoe UI", 9)).pack(side="left")
-    update_button = ttk.Button(update_row)
-    last_update = None
-    window.protocol("WM_DELETE_WINDOW", server.request_stop)
-
-    def refresh():
-        nonlocal last_update
-        if stop.is_set():
-            window.destroy()
-            return
-        if activation is not None and activation.requested():
-            window.deiconify()
-            window.lift()
-        value = server.state.read()
-        message.set(value["message"])
-        update = value["update"]
-        if update != last_update:
-            last_update = update
-            update_button.pack_forget()
-            status = update["status"]
-            text = "Checking for updates…" if status == "checking" else "Up to date" if status == "current" else "Update check unavailable"
-            if status == "available":
-                text = f"v{update['latestVersion']} available"
-                if updates.can_install(update):
-                    update_button.configure(text="Update", command=lambda choice=update: updates.install(choice))
-                else:
-                    update_button.configure(text="Download update", command=lambda url=update["downloadUrl"]: webbrowser.open(url))
-                update_button.pack(side="right")
-            elif status == "downloading":
-                text = "Downloading update…"
-            elif status == "installing":
-                text = "Installing update…"
-            elif status == "install_failed":
-                text = "Could not start update"
-                update_button.configure(text="Retry update", command=lambda choice=update: updates.install(choice))
-                update_button.pack(side="right")
-            elif status == "unavailable":
-                update_button.configure(text="Retry", command=updates.start)
-                update_button.pack(side="right")
-            elif status == "disabled":
-                text = "Update check off"
-            update_message.set(f"v{installed_version} · {text}")
-        window.after(300, refresh)
-
-    refresh()
-    window.mainloop()
-
-
 def main(argv=None):
     try:
         argv, pairing = parse_activation_args(sys.argv[1:] if argv is None else argv)
@@ -344,9 +250,10 @@ def run(args, activation=None):
     threads = []
     serving = None
     try:
-        preferred = args.league_folder or read_settings().get("leagueFolder")
+        folder = read_settings().get("leagueFolder")
+        preferred = args.league_folder or (Path(folder) if isinstance(folder, str) and folder else None)
         poller = Poller(state, stop, args.ca_file or root / "companion/assets/riotgames.pem",
-                        Path(preferred) if preferred else None)
+                        preferred)
         serving = threading.Thread(target=server.serve_forever, daemon=True)
         serving.start()
         polling = threading.Thread(target=poller.run, daemon=True)
@@ -364,6 +271,8 @@ def run(args, activation=None):
         if args.headless:
             stop.wait()
         else:
+            from companion.launcher import launcher
+
             launcher(server, poller, stop, updates, activation=activation)
         return 0
     finally:

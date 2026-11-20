@@ -4,17 +4,24 @@
 
 1. Download and run `DraftEdgeCompanionSetup.exe` from the [GitHub releases](https://github.com/pant4321/draft-lab/releases). Setup installs for your Windows account and adds **DraftEdge Companion** to Start search. The beta installer is unsigned, so Windows may show a warning.
 2. On DraftEdge, choose **Companion → Open Companion**. Allow the app to open and grant local access if prompted. The app starts or reuses the running companion and connects the tab you clicked from, including a local preview at `127.0.0.1`.
-3. Leave the companion open with League while drafting. Starting the app from Start opens the launcher. Use **Open DraftEdge** inside the launcher whenever you want it to open the live site for you.
+3. Keep the companion running with League while drafting. The launcher shows the League connection and has an **Open DraftEdge** button for the live site. Opening the companion itself leaves your browser alone.
 
-To uninstall, go to **Settings → Apps → Installed apps → DraftEdge Companion**. Setup stores the application separately from your saved League folder, so that preference is available after upgrading or reinstalling.
+To uninstall, go to **Settings → Apps → Installed apps → DraftEdge Companion**. Uninstall removes the installed copy's startup entry. Your League folder and window preference are saved separately and survive upgrades or reinstalls.
 
-The release also includes a portable copy, `DraftLab.exe`. Run it directly and choose **Open DraftEdge** inside the launcher to connect. The installer registers the website's **Open Companion** link. Both editions bundle the Windows x64 League bridge, Python runtime, and Riot's local client CA certificate. The live site loads from GitHub Pages and requires internet access. Refresh the page to receive published website changes.
+The release also includes `DraftLab-portable.zip`. Extract the ZIP and run `DraftLab.exe` from the extracted folder. Choose **Open DraftEdge** inside the launcher to connect. The installer registers the website's **Open Companion** link. Both editions bundle the Windows x64 League bridge, Python, Qt, and Riot's local client CA certificate. The live site loads from GitHub Pages and requires internet access. Refresh the page to receive published website changes.
 
-The launcher detects the League install directory from common locations or its running executable path. If detection fails, use **League folder…** and select the directory containing `LeagueClientUx.exe` and `lockfile`. The selected directory is the only setting written to `%LOCALAPPDATA%/DraftLab/settings.json`. Authentication credentials are read from League's lockfile into memory and never written to settings or logs. The companion does not read other processes' memory.
+The launcher detects the League install directory from common locations or its running executable path. If detection fails, use **League folder…** and select the directory containing `LeagueClientUx.exe` and `lockfile`. The selected directory and close behavior are saved to `%LOCALAPPDATA%/DraftLab/settings.json`. Authentication credentials are read from League's lockfile into memory and never written to settings or logs. The companion does not read other processes' memory.
+
+## Windows behavior
+
+Both switches are off by default.
+
+- **Start with Windows** starts the installed or portable executable when you sign in to your Windows account. The companion window opens on its own. If you move a portable copy, turn this setting on from its new location.
+- **Close to system tray** hides the window and keeps League sync running when you close it. Click the DraftEdge icon by the Windows clock to reopen the window. The icon may be in the hidden icons menu. Right-click it for **Open DraftEdge Companion** and **Quit**. With the switch off, closing the window exits. The standard minimize button still minimizes to the taskbar.
 
 The bridge tries loopback ports 8766, 8767, and 8768. The website button uses a short-lived, one-time request for its own origin and listening port. Chrome and Edge may prompt before allowing local access. If all three ports are occupied, use **Open DraftEdge** in the launcher to connect through its fallback port. That explicit launcher action supplies its session in a URL fragment. DraftEdge removes the fragment before Analytics starts. Both flows keep the session in the connected tab's session storage so refresh can resume. With companion 0.1.10 or later, the browser saves a separate reconnect key after connecting. Reopening the site in the same browser reconnects quietly while the same companion is running and local access is available. If the companion has restarted, use **Open Companion** again.
 
-When a new launcher session needs browser permission, choose **Connect to League** in the setup dialog, then **Allow** in the browser prompt. Refreshing a connected tab resumes quietly on a local preview or when the browser reports an existing permission grant. If another tab has already paired with a restarted companion, DraftEdge can use that pairing to recover an expired session. If access needs attention after a refresh, open the connection menu for status and reconnect options. Closing the launcher or choosing **Quit companion** stops the bridge. An **Open Companion** request during shutdown waits for the old bridge to close. Failed connections keep manual drafting available.
+When a new launcher session needs browser permission, choose **Connect to League** in the setup dialog, then **Allow** in the browser prompt. Refreshing a connected tab resumes quietly on a local preview or when the browser reports an existing permission grant. If another tab has already paired with a restarted companion, DraftEdge can use that pairing to recover an expired session. If access needs attention after a refresh, open the connection menu for status and reconnect options. An **Open Companion** request during shutdown waits for the old bridge to close. Failed connections keep manual drafting available.
 
 - **Waiting** means the companion is running and looking for League. Start League and enter a supported champion select to begin syncing. **Ready** means League is open and the companion is waiting for champion select.
 - **Offline** or **Expired** offers **Reconnect → Open Companion** from the League menu. If the app is still running and the session is offline, you can also retry the existing connection.
@@ -22,11 +29,13 @@ When a new launcher session needs browser permission, choose **Connect to League
 
 ## Startup update check
 
-The companion makes one background request at startup to GitHub's latest stable release endpoint for `pant4321/draft-lab`. It compares numeric `companion-vMAJOR.MINOR.PATCH` versions and checks that the published download belongs to that release. Version 0.1.8 and later prefer `DraftEdgeCompanionSetup.exe`, with `DraftLab.exe` as a fallback. The request sends the app version and ordinary HTTP request metadata. [GitHub release API](https://docs.github.com/en/rest/releases/releases#get-the-latest-release)
+The companion makes one background request at startup to GitHub's latest stable release endpoint for `pant4321/draft-lab`. It compares numeric `companion-vMAJOR.MINOR.PATCH` versions and checks that the published download belongs to that release. It prefers `DraftEdgeCompanionSetup.exe`, with the portable ZIP and legacy `DraftLab.exe` as manual fallbacks. The request sends the app version and ordinary HTTP request metadata. [GitHub release API](https://docs.github.com/en/rest/releases/releases#get-the-latest-release)
 
 Starting with 0.1.12, an installed copy shows **Update** when a newer installer has a published SHA-256 digest. One click downloads and verifies the installer before closing the companion. Windows runs setup in the background and reopens the app in the same installation folder. A failed download leaves the companion running and offers **Retry update**. Portable copies and releases without a verifiable installer offer **Download update** for a manual upgrade. To upgrade manually, quit the companion and run the newer installer.
 
 Equal or older releases show **Up to date**. Network errors, invalid metadata, or rate limits show **Update check unavailable** with **Retry**. The metadata request has a five-second timeout and a 512 KiB response cap.
+
+The one-click updater accepts installers up to 256 MiB and offers **Download update** for larger ones. Release the higher cap in an installer at or below 64 MiB first so existing copies can receive it through one-click update. The updater checks the latest stable release, so users who skip that update and still have the old cap will need to install the first larger release manually.
 
 `--no-update-check` disables the request for offline smoke tests. Source UI testing can use `python -m companion.tests.update_preview --ready-file build/update-preview.json` to preview an older installed version with a simulated League connection.
 
@@ -72,16 +81,16 @@ npm ci
 python -m venv .venv-companion
 .venv-companion\Scripts\python -m pip install -r companion/requirements-build.txt
 .venv-companion\Scripts\python companion/build.py
-python companion/smoke.py build/companion-release/DraftLab.exe
+python companion/smoke.py build/companion-release/DraftLab/DraftLab.exe --gui
 python -m companion.installer --iscc "C:\path\to\ISCC.exe"
 python -m companion.smoke_installer --iscc "C:\path\to\ISCC.exe"
 ```
 
-`build.py` runs JavaScript and Python tests, generates the icon, and creates `build/companion-release/DraftLab.exe` using PyInstaller. The smoke test launches the actual frozen binary, checks the live-site launch URL, strict CORS preflight, authenticated bridge and shutdown. Python integration tests generate a disposable HTTPS client certificate using OpenSSL and exercise the real local HTTPS polling path; OpenSSL is a test tool only, not a runtime requirement. Source development can run `python -m companion.app`.
+`build.py` runs JavaScript and Python tests and freezes the PySide6 Essentials launcher and bridge into `build/companion-release/DraftLab/`. The launcher, executable, installer, and system tray use the website favicon. `--gui` checks that the frozen executable opens its window on Windows. Run it with the companion closed. The smoke test also checks the live-site launch URL, CORS preflight, authenticated bridge, reconnect, and shutdown. Python integration tests use OpenSSL to generate a disposable certificate for exercising local HTTPS. For source development, install `companion/requirements.txt` with pip and run `python -m companion.app`.
 
-The installer smoke test requires a Windows account without the companion installed. It verifies the Start shortcut, launch forwarding through the registered `draftedge://open` link, in-place upgrade, and uninstall using a temporary installation and fixture settings.
+The installer smoke test requires a Windows account without the companion installed or registered to start at sign-in. It verifies the Start shortcut, launch forwarding through the registered `draftedge://open` link, in-place upgrade, and startup entry cleanup on uninstall using a temporary installation and fixture settings.
 
-The GitHub Windows workflow runs these checks for `companion-v*` tags or manual runs. It uploads the portable executable, installer, and SHA-256 files as build artifacts. To release, use a tag that matches the version in `companion/app.py` and attach all four files to the GitHub release. Include the [repository license](../LICENSE) with the downloads and link to the corresponding source at the release tag. Publish the first installer on the latest stable release before deploying the website's direct installer link. For a prerelease, share its release page so testers can find the installer.
+The GitHub Windows workflow runs these checks for `companion-v*` tags or manual runs. It uploads the portable ZIP, installer, and their SHA-256 files. To release, use a tag that matches the version in `companion/app.py` and attach all four files to the GitHub release. Both packages include the license texts and [Qt notices and corresponding source links](THIRD-PARTY-NOTICES.md). Publish the first installer on the latest stable release before deploying the website's direct installer link. For a prerelease, share its release page so testers can find the installer.
 
 `--headless`, `--port`, `--ready-file`, and `--ca-file` are test and development options. Ready files contain a local bridge token and belong in ignored temporary or build directories.
 
