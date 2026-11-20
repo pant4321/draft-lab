@@ -10,7 +10,7 @@ import time
 from companion.app import VERSION
 from companion.installer import BUNDLE, RELEASE, build_installer
 from companion.smoke import smoke
-from companion.startup import RUN_KEY, RUN_NAME, set_start_with_windows, starts_with_windows
+from companion.startup import RUN_KEY, RUN_NAME, START_IN_TRAY, set_start_with_windows
 from companion.updates import EXECUTABLE_NAME, INSTALLER_NAME
 from companion.windows_launch import ACTIVATION_URI, WindowsActivation
 
@@ -73,14 +73,15 @@ def main():
                            env=env, check=True, timeout=90)
 
         executable = destination / EXECUTABLE_NAME
-        startup = f'"{executable}"'
+        legacy_startup = f'"{executable}"'
+        startup = f'{legacy_startup} {START_IN_TRAY}'
         try:
             install(older)
             assert executable.is_file() and shortcut.is_file()
             assert value(UNINSTALL, 'DisplayVersion') == '0.0.0'
             assert value(PROTOCOL, 'URL Protocol') == ''
             assert not has_startup_entry()
-            set_start_with_windows(startup, True)
+            set_start_with_windows(legacy_startup, True)
 
             # Confirm that an upgrade replaces the installed binary.
             executable.write_bytes(b'old install fixture')
@@ -89,7 +90,7 @@ def main():
             assert (destination / '_internal/PySide6/plugins/platforms/qwindows.dll').is_file()
             assert value(UNINSTALL, 'DisplayVersion') == VERSION
             assert shortcut.is_file() and settings.read_bytes() == preferences
-            assert starts_with_windows(startup)
+            assert value(RUN_KEY, RUN_NAME) == startup
 
             # Hold the instance mutex in the test so a real shell launch forwards
             # the request without opening a browser or reading the League client.

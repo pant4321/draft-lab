@@ -14,9 +14,9 @@ The launcher detects the League install directory from common locations or its r
 
 ## Windows behavior
 
-Both switches are off by default.
+**Start with Windows** is off by default. **Close to system tray** is on by default. Upgrades keep any saved choice.
 
-- **Start with Windows** starts the installed or portable executable when you sign in to your Windows account. The companion window opens on its own. If you move a portable copy, turn this setting on from its new location.
+- **Start with Windows** starts the companion in the system tray when you sign in to your Windows account. Click the DraftEdge tray icon or open the companion from Start to show the window. Upgrades migrate an existing DraftEdge startup registration. If you move a portable copy, turn this setting on from its new location.
 - **Close to system tray** hides the window and keeps League sync running when you close it. Click the DraftEdge icon by the Windows clock to reopen the window. The icon may be in the hidden icons menu. Right-click it for **Open DraftEdge Companion** and **Quit**. With the switch off, closing the window exits. The standard minimize button still minimizes to the taskbar.
 
 The bridge tries loopback ports 8766, 8767, and 8768. The website button uses a short-lived, one-time request for its own origin and listening port. Chrome and Edge may prompt before allowing local access. If all three ports are occupied, use **Open DraftEdge** in the launcher to connect through its fallback port. That explicit launcher action supplies its session in a URL fragment. DraftEdge removes the fragment before Analytics starts. Both flows keep the session in the connected tab's session storage so refresh can resume. With companion 0.1.10 or later, the browser saves a separate reconnect key after connecting. Reopening the site in the same browser reconnects quietly while the same companion is running and local access is available. If the companion has restarted, use **Open Companion** again.

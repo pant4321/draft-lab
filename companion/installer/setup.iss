@@ -39,6 +39,23 @@ Filename: "{app}\DraftLab.exe"; Description: "Open DraftEdge Companion"; Flags: 
 const
   RunKey = 'Software\Microsoft\Windows\CurrentVersion\Run';
   RunName = 'DraftEdge Companion';
+  TraySwitch = ' --start-in-tray';
+
+function StartupExecutable: String;
+begin
+  Result := '"' + ExpandConstant('{app}\DraftLab.exe') + '"';
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  Command: String;
+begin
+  if CurStep = ssPostInstall then
+    if RegQueryStringValue(HKCU, RunKey, RunName, Command) then
+      if CompareText(Command, StartupExecutable) = 0 then
+        if Length(StartupExecutable + TraySwitch) <= 260 then
+          RegWriteStringValue(HKCU, RunKey, RunName, StartupExecutable + TraySwitch);
+end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
@@ -46,6 +63,7 @@ var
 begin
   if CurUninstallStep = usUninstall then
     if RegQueryStringValue(HKCU, RunKey, RunName, Command) then
-      if CompareText(Command, '"' + ExpandConstant('{app}\DraftLab.exe') + '"') = 0 then
+      if (CompareText(Command, StartupExecutable) = 0) or
+         (CompareText(Command, StartupExecutable + TraySwitch) = 0) then
         RegDeleteValue(HKCU, RunKey, RunName);
 end;

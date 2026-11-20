@@ -117,15 +117,15 @@ class LauncherWindow(QWidget):
         rows.setContentsMargins(1, 0, 1, 0)
         rows.setSpacing(0)
         self.startup_command = startup_command()
-        startup_help = "Launch when you sign in."
+        startup_help = "Start in the system tray when you sign in."
         startup_enabled = False
         if self.startup_command is None:
             startup_help = "Available in the Windows executable."
         else:
             try:
-                startup_enabled = starts_with_windows(self.startup_command)
+                startup_enabled = starts_with_windows(self.startup_command, migrate=True)
             except OSError:
-                startup_help = "Windows startup settings could not be read."
+                startup_help = "Windows startup settings are unavailable."
                 self.startup_command = None
 
         startup = SettingRow("Start with Windows", startup_help, "power",
@@ -140,7 +140,7 @@ class LauncherWindow(QWidget):
 
         supports_tray = os.name == "nt"
         tray_setting = SettingRow("Close to system tray", "Keep the companion running in the background.", "tray",
-                                  checked=supports_tray and read_settings().get("minimizeOnClose") is True,
+                                  checked=supports_tray and read_settings().get("minimizeOnClose", True) is True,
                                   enabled=supports_tray)
         tray_setting.switch.clicked.connect(self.save_close_behavior)
         self.close_to_tray = tray_setting.switch
@@ -225,6 +225,10 @@ class LauncherWindow(QWidget):
             self.activateWindow()
             self.tray.hide()
 
+    def check_startup_tray(self):
+        if self.tray.isVisible() and not self.tray.geometry().isValid():
+            self.restore()
+
     def tray_activated(self, reason):
         if reason in (QSystemTrayIcon.ActivationReason.Trigger, QSystemTrayIcon.ActivationReason.DoubleClick):
             self.restore()
@@ -295,7 +299,7 @@ class LauncherWindow(QWidget):
             self.update_action()
 
 
-def launcher(server, poller, stop, updates, title="DraftEdge Companion", *, activation=None):
+def launcher(server, poller, stop, updates, title="DraftEdge Companion", *, activation=None, start_in_tray=False):
     app = QApplication([sys.argv[0]])
     app.setApplicationName("DraftEdge Companion")
     app.setQuitOnLastWindowClosed(False)
@@ -305,7 +309,14 @@ def launcher(server, poller, stop, updates, title="DraftEdge Companion", *, acti
     icon = QIcon(str(APP_ICON))
     app.setWindowIcon(icon)
     window = LauncherWindow(server, poller, stop, updates, title, activation, icon)
-    window.show()
+    if stop.is_set():
+        return
+    if start_in_tray and os.name == "nt" and not window.isVisible():
+        window.tray.show()
+        # Explorer may still be starting at sign-in. Keep the app reachable if the tray never appears.
+        QTimer.singleShot(15_000, window.check_startup_tray)
+    else:
+        window.show()
     try:
         app.exec()
     finally:

@@ -5,23 +5,32 @@ import sys
 
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 RUN_NAME = "DraftEdge Companion"
+START_IN_TRAY = "--start-in-tray"
 
 
 def startup_command():
     if os.name == "nt" and getattr(sys, "frozen", False):
-        return f'"{sys.executable}"'
+        return f'"{sys.executable}" {START_IN_TRAY}'
     return None
 
 
-def starts_with_windows(command):
+def starts_with_windows(command, *, migrate=False):
     import winreg
 
     try:
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY) as key:
             value, kind = winreg.QueryValueEx(key, RUN_NAME)
-            return kind == winreg.REG_SZ and value.casefold() == command.casefold()
     except FileNotFoundError:
         return False
+    if kind != winreg.REG_SZ:
+        return False
+    if value.casefold() == command.casefold():
+        return True
+    if value.casefold() != command.removesuffix(" " + START_IN_TRAY).casefold():
+        return False
+    if migrate:
+        set_start_with_windows(command, True)
+    return True
 
 
 def set_start_with_windows(command, enabled):
@@ -37,7 +46,9 @@ def set_start_with_windows(command, enabled):
         try:
             with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, access=winreg.KEY_QUERY_VALUE | winreg.KEY_SET_VALUE) as key:
                 value, kind = winreg.QueryValueEx(key, RUN_NAME)
-                if kind == winreg.REG_SZ and value.casefold() == command.casefold():
+                if kind == winreg.REG_SZ and value.casefold() in (
+                    command.casefold(), command.removesuffix(" " + START_IN_TRAY).casefold()
+                ):
                     winreg.DeleteValue(key, RUN_NAME)
         except FileNotFoundError:
             pass

@@ -18,10 +18,11 @@ if __package__ in (None, ""):
 from companion.lcu import Poller
 from companion.pairing import LIVE_ORIGINS, PAIRING_PORTS, PendingPairings, allowed_origin
 from companion.preferences import read_settings, settings_path
+from companion.startup import START_IN_TRAY
 from companion.updates import UpdateChecker
 from companion.windows_launch import WindowsActivation, parse_activation_args
 
-VERSION = "0.2.0"
+VERSION = "0.2.1"
 LIVE_SITE = "https://pant4321.github.io/draft-lab/"
 LIVE_ORIGIN = "https://pant4321.github.io"
 BRIDGE_PROTOCOL = 1
@@ -210,6 +211,7 @@ def main(argv=None):
     parser.add_argument("--port", type=int, default=PAIRING_PORTS[0])
     parser.add_argument("--league-folder", type=Path)
     parser.add_argument("--headless", action="store_true", help="Run without the launcher window, for integration tests.")
+    parser.add_argument(START_IN_TRAY, action="store_true", help="Start in the Windows notification area.")
     parser.add_argument("--no-browser", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--no-update-check", action="store_true", help="Skip the public GitHub update check, for offline tests.")
     parser.add_argument("--ready-file", type=Path, help="Write local startup info for integration tests.")
@@ -218,16 +220,17 @@ def main(argv=None):
     if pairing is not None:
         PendingPairings(settings_path().parent / "pairing").offer(*pairing)
     if os.name == "nt" and not args.headless:
+        background_launch = pairing is not None or args.start_in_tray
         deadline = time.monotonic() + 5
         while True:
             with WindowsActivation() as activation:
                 if activation.primary:
                     return run(args, activation)
-                if activation.can_forward() and (pairing is not None or activation.notify()):
+                if activation.can_forward() and (background_launch or activation.notify()):
                     return 0
             # Drop our handle between attempts so the retiring instance can release the mutex.
             if time.monotonic() >= deadline:
-                if pairing is None:
+                if not background_launch:
                     ctypes.windll.user32.MessageBoxW(
                         None, "Close the running companion before reopening DraftEdge Companion.",
                         "DraftEdge Companion", 0)
@@ -273,7 +276,7 @@ def run(args, activation=None):
         else:
             from companion.launcher import launcher
 
-            launcher(server, poller, stop, updates, activation=activation)
+            launcher(server, poller, stop, updates, activation=activation, start_in_tray=args.start_in_tray)
         return 0
     finally:
         server.request_stop()

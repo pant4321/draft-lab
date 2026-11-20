@@ -6,7 +6,7 @@ from unittest.mock import patch
 from uuid import uuid4
 
 from companion.preferences import read_settings, update_settings
-from companion.startup import RUN_NAME, set_start_with_windows, starts_with_windows
+from companion.startup import RUN_NAME, START_IN_TRAY, set_start_with_windows, starts_with_windows
 
 
 class PreferencesTests(unittest.TestCase):
@@ -16,22 +16,27 @@ class PreferencesTests(unittest.TestCase):
             path.write_text('{"leagueFolder":"old","other":1}', encoding="utf-8")
             with patch("companion.preferences.settings_path", return_value=path):
                 self.assertNotIn("minimizeOnClose", read_settings())
-                update_settings(minimizeOnClose=True)
+                update_settings(minimizeOnClose=False)
                 update_settings(leagueFolder="new")
-                self.assertEqual(read_settings(), {"leagueFolder": "new", "minimizeOnClose": True, "other": 1})
+                self.assertEqual(read_settings(), {"leagueFolder": "new", "minimizeOnClose": False, "other": 1})
 
     @unittest.skipUnless(os.name == "nt", "Windows startup uses the per-user registry")
     def test_startup_registration_can_be_enabled_and_removed_only_by_its_owner(self):
         import winreg
 
         test_key = r"Software\DraftEdgeStartupTest-" + uuid4().hex
-        command = r'"C:\Example Path\DraftLab.exe"'
-        other_copy = r'"C:\Other Path\DraftLab.exe"'
+        legacy = r'"C:\Example Path\DraftLab.exe"'
+        command = f"{legacy} {START_IN_TRAY}"
+        other_legacy = r'"C:\Other Path\DraftLab.exe"'
+        other_copy = f"{other_legacy} {START_IN_TRAY}"
         with patch("companion.startup.RUN_KEY", test_key):
             try:
                 self.assertFalse(starts_with_windows(command))
-                set_start_with_windows(command, True)
-                self.assertTrue(starts_with_windows(command))
+                set_start_with_windows(legacy, True)
+                self.assertFalse(starts_with_windows(other_copy, migrate=True))
+                self.assertTrue(starts_with_windows(command, migrate=True))
+                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, test_key) as key:
+                    self.assertEqual(winreg.QueryValueEx(key, RUN_NAME)[0], command)
                 set_start_with_windows(other_copy, False)
                 self.assertTrue(starts_with_windows(command))
                 set_start_with_windows(command, False)

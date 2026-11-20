@@ -10,6 +10,7 @@ from urllib.parse import urlencode
 from uuid import uuid4
 
 from companion.app import main, run
+from companion.startup import START_IN_TRAY
 from companion.windows_launch import ACTIVATION_URI, WindowsActivation, parse_activation_args
 
 
@@ -39,6 +40,7 @@ class ActivationTests(unittest.TestCase):
             ["--activate", "draftedge://open#other"],
             ["--activate", "draftedge://example.com/"],
             ["--activate", ACTIVATION_URI, "--ready-file", "token.json"],
+            ["--activate", ACTIVATION_URI, START_IN_TRAY],
             ["--league-folder", "example", "--activate", ACTIVATION_URI],
         ]
         with patch("companion.app.run") as run:
@@ -48,15 +50,28 @@ class ActivationTests(unittest.TestCase):
             run.assert_not_called()
 
     def test_companion_startup_opens_only_the_launcher(self):
-        args = Namespace(port=0, league_folder=None, ca_file=None, no_update_check=True,
-                         ready_file=None, headless=False, no_browser=False)
-        launcher = Mock()
-        with (patch("companion.app.Poller"),
-              patch.dict(sys.modules, {"companion.launcher": SimpleNamespace(launcher=launcher)}),
-              patch("webbrowser.open_new_tab") as browser):
-            self.assertEqual(run(args), 0)
-            launcher.assert_called_once()
-            browser.assert_not_called()
+        for start_in_tray in (False, True):
+            with self.subTest(start_in_tray=start_in_tray):
+                args = Namespace(port=0, league_folder=None, ca_file=None, no_update_check=True,
+                                 ready_file=None, headless=False, start_in_tray=start_in_tray)
+                launcher = Mock()
+                with (patch("companion.app.Poller"),
+                      patch.dict(sys.modules, {"companion.launcher": SimpleNamespace(launcher=launcher)}),
+                      patch("webbrowser.open_new_tab") as browser):
+                    self.assertEqual(run(args), 0)
+                    launcher.assert_called_once()
+                    self.assertEqual(launcher.call_args.kwargs["start_in_tray"], start_in_tray)
+                    browser.assert_not_called()
+
+    @unittest.skipUnless(os.name == 'nt', 'Windows activation uses named kernel objects')
+    def test_sign_in_launch_does_not_raise_an_existing_window(self):
+        name = r'Local\DraftEdgeActivationTest-' + uuid4().hex
+        with WindowsActivation(name) as running:
+            with patch("companion.app.WindowsActivation", lambda: WindowsActivation(name)):
+                self.assertEqual(main([START_IN_TRAY]), 0)
+                self.assertFalse(running.requested())
+                self.assertEqual(main([]), 0)
+                self.assertTrue(running.requested())
 
     @unittest.skipUnless(os.name == 'nt', 'Windows activation uses named kernel objects')
     def test_website_activation_waits_for_shutdown_then_starts_a_replacement(self):
