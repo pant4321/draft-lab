@@ -81,7 +81,7 @@ python -m companion.smoke_installer --iscc "C:\path\to\ISCC.exe"
 
 The installer smoke test requires a Windows account without the companion installed. It verifies the Start shortcut, launch forwarding through the registered `draftedge://open` link, in-place upgrade, and uninstall using a temporary installation and fixture settings.
 
-The GitHub Windows workflow runs these checks for `companion-v*` tags or manual runs. It uploads the portable executable, installer, and SHA-256 files as build artifacts. To release, use a tag that matches the version in `companion/app.py` and attach all four files to the GitHub release. Publish the first installer on the latest stable release before deploying the website's direct installer link. For a prerelease, share its release page so testers can find the installer.
+The GitHub Windows workflow runs these checks for `companion-v*` tags or manual runs. It uploads the portable executable, installer, and SHA-256 files as build artifacts. To release, use a tag that matches the version in `companion/app.py` and attach all four files to the GitHub release. Include the [repository license](../LICENSE) with the downloads and link to the corresponding source at the release tag. Publish the first installer on the latest stable release before deploying the website's direct installer link. For a prerelease, share its release page so testers can find the installer.
 
 `--headless`, `--port`, `--ready-file`, and `--ca-file` are test and development options. Ready files contain a local bridge token and belong in ignored temporary or build directories.
 

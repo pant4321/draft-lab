@@ -43,7 +43,9 @@ export function Explanations() {
           <span>DraftEdge</span>
           <span>
             <a href="mailto:contact@draftedge.website">Contact</a> ·{' '}
-            <a href="privacy.html">Privacy</a>
+            <a href="privacy.html">Privacy</a> ·{' '}
+            <a href={import.meta.env.VITE_DRAFTEDGE_SOURCE_URL}>Source</a> ·{' '}
+            <a href="license.txt">License</a>
           </span>
         </div>
         <p className="riot-legal">

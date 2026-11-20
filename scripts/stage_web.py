@@ -17,6 +17,7 @@ def main():
     with TemporaryDirectory(dir=build) as scratch:
         staged = Path(scratch) / 'public'
         build_pages(root / 'dist', staged, static_source=root / 'web/public')
+        shutil.copyfile(root / 'LICENSE', staged / 'license.txt')
         if destination.exists():
             destination.rename(Path(scratch) / 'previous')
         try:

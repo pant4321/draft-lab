@@ -57,3 +57,7 @@ npm run test:e2e
 Pushes to `main` check out the pinned datasets, run these checks, and deploy `build/pages` to GitHub Pages. The browser suite serves that build at both the custom-domain root and the GitHub Pages project path. See [AGENTS.md](AGENTS.md) for repository rules.
 
 When updating the website icon, refresh the `v` query for `favicon.ico` in both HTML files and for `assets/draft-lab-mark.png` in the React header. Use the first 12 SHA-256 characters of each binary file. Vite versions the JS and CSS bundles automatically.
+
+## License
+
+DraftEdge's original source code is licensed under the [GNU Affero General Public License v3.0](LICENSE) (`AGPL-3.0-only`). Third-party assets and dependencies retain their own terms. The website footer links to the license and the source for the deployed revision.
