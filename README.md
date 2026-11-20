@@ -12,7 +12,7 @@ A League of Legends draft assistant that ranks champions by synergy with your te
 4. Open **Suggested bans for your pool** to see up to five threats to your role's saved champions. Expand a suggestion to see how each pool pick contributes to its score.
 5. Expand **Patches** at the bottom of **Settings**, uncheck any patches to exclude, and select **Done**. Keep at least one patch selected. Fewer games make the stats more variable, and very small samples can produce apparent effects that are mostly noise.
 
-Drag champions between roles to correct assignments. Dropping onto an occupied slot swaps the two picks. Drafts, pools, and settings save in your browser.
+Drag champions between roles to correct assignments. Dropping onto an occupied slot swaps the two picks. With **Auto guess roles** enabled, **Pinned** marks manual assignments. Use **Clear role pins** to let DraftEdge guess those roles again. Drafts, pools, and settings save in your browser.
 
 For automatic imports, run the Windows companion and leave it open with League. It opens the website; choose **Connect to League** and allow local access when prompted. The companion reads champion select without making picks or bans. [Setup, troubleshooting, and build notes](companion/README.md).
 

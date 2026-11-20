@@ -66,6 +66,7 @@
 @media(pointer:coarse){#rank-dataset{min-height:44px}}
 .teamhead span{font-size:11px}
 .slot-role{font-size:10px;letter-spacing:.8px}
+.role-marker.fixed{text-transform:none}
 .slot-name{font-size:13px}
 .slot-empty .slot-name{font-size:12px;color:#8ba09b}
 .role-choice span{font-size:10px}

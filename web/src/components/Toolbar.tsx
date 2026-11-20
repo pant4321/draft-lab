@@ -270,9 +270,9 @@ export function Controls({
 }) {
   const { state, dispatch, pending, exclusions } = lab;
   const custom = customMultipliers(state.weights) || exclusions.length > 0;
-  const pins = Object.values(state.roleOverrides).some(
-    (side) => Object.keys(side).length,
-  );
+  const showClearPins =
+    state.autoRoles &&
+    Object.values(state.roleOverrides).some((side) => Object.keys(side).length);
   return (
     <div className="controls">
       <div className="rolecontrol">
@@ -304,10 +304,12 @@ export function Controls({
         <button
           id="clear-role-pins"
           className="ghost"
-          hidden={!pins}
+          type="button"
+          hidden={!showClearPins}
+          title="Let DraftEdge guess pinned roles again"
           onClick={() => dispatch({ type: 'clearCorrections' })}
         >
-          Clear corrections
+          Clear role pins
         </button>
         <button
           id="draft-settings"

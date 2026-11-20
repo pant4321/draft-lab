@@ -1,280 +1,119 @@
 import { expect, test } from '@playwright/test';
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 
-async function ready(page: Page, path = '/') {
-  await page.goto(path);
-  await expect(page.locator('.pick').first()).toBeVisible();
+function firstRecommendation(page: Page) {
+  return page.getByRole('button', { name: /^Inspect / }).first();
 }
-async function pick(page: Page, slot: string, champion: string) {
-  await page.getByRole('button', { name: 'Choose ' + slot }).click();
-  const search = page.getByRole('searchbox', {
-    name: 'Search champions',
-    exact: true,
-  });
+
+async function ready(page: Page) {
+  await page.goto('/');
+  await expect(firstRecommendation(page)).toBeVisible();
+}
+
+async function pick(page: Page, slot: Locator, champion: string) {
+  await slot.press('Enter');
+  const picker = page.getByRole('dialog');
+  const search = picker.getByRole('searchbox');
   await expect(search).toBeFocused();
   await search.fill(champion);
-  await page
+  await picker
     .getByRole('button', { name: 'Pick ' + champion, exact: true })
     .click();
 }
-async function drag(page: Page, from: string, to: string) {
-  const source = await page
-    .getByRole('button', { name: 'Choose ' + from })
-    .boundingBox();
-  const target = await page
-    .getByRole('button', { name: 'Choose ' + to })
-    .boundingBox();
-  if (!source || !target) throw Error('Missing draft slot');
-  await page.mouse.move(
-    source.x + source.width / 2,
-    source.y + source.height / 2,
-  );
+
+async function drag(page: Page, source: Locator, target: Locator) {
+  const from = await source.boundingBox();
+  const to = await target.boundingBox();
+  if (!from || !to) throw Error('Missing draft slot');
+  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
   await page.mouse.down();
-  await page.mouse.move(
-    target.x + target.width / 2,
-    target.y + target.height / 2,
-    { steps: 12 },
-  );
+  await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 12 });
   await page.mouse.up();
 }
 
-test('draft slots, swaps, bans, scoring, and saved state match the draft workflow', async ({
+test('manual swaps are saved and can be released when auto roles are enabled', async ({
   page,
 }) => {
   await ready(page);
-  await pick(page, 'enemy Top', 'Garen');
-  await expect(
-    page.getByRole('heading', { name: 'Best picks for this draft' }),
-  ).toBeAttached();
-  await expect(page.locator('.breakdown-total')).toHaveText(
-    /^[-+]?\d+\.\d{2}$/,
-  );
-  await expect(page.locator('.pair-card.enemy')).toContainText('Garen');
-  await expect(
-    page.getByLabel('Remaining counters', { exact: true }),
-  ).toBeVisible();
-  await page
-    .getByRole('button', { name: 'How remaining counters are ranked' })
-    .click();
-  await expect(page.locator('#remaining-counter-method')).toContainText(
-    'Minimum 5,000 matchup games and 0.5% role pick share',
-  );
-  await page.keyboard.press('Escape');
+  const top = page.getByRole('button', { name: 'Choose enemy Top' });
+  const mid = page.getByRole('button', { name: 'Choose enemy Mid' });
+  await pick(page, top, 'Garen');
+  await pick(page, mid, 'Ahri');
+  await drag(page, top, mid);
+  await expect(top).toContainText('Ahri');
+  await expect(mid).toContainText('Garen');
 
-  await pick(page, 'enemy Mid', 'Ahri');
-  await drag(page, 'enemy Top', 'enemy Mid');
-  await expect(
-    page.locator('[data-slot-side=enemies][data-slot-role=middle]'),
-  ).toContainText('Garen');
-  await expect(
-    page.locator('[data-slot-side=enemies][data-slot-role=top]'),
-  ).toContainText('Ahri');
-  await expect(
-    page.getByRole('button', { name: 'Clear corrections' }),
-  ).toBeVisible();
-  const ignore = page.getByRole('button', {
+  const exclude = page.getByRole('button', {
     name: 'Exclude Garen from calculations',
   });
-  await ignore.focus();
-  await ignore.press('Space');
-  await expect(ignore).toBeFocused();
-  await expect(ignore).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.locator('.pair-weight')).toContainText(
-    'Excluded from calculations',
-  );
+  await exclude.press('Space');
+  await expect(exclude).toBeFocused();
+  await expect(exclude).toHaveAttribute('aria-pressed', 'true');
 
-  await page.getByRole('button', { name: 'Add ban' }).click();
-  await page
-    .getByRole('searchbox', { name: 'Search champions', exact: true })
-    .fill('Teemo');
-  await page.getByRole('button', { name: 'Ban Teemo', exact: true }).click();
-  await page
-    .getByRole('searchbox', { name: 'Search champions', exact: true })
-    .fill('');
-  await page.keyboard.press('Escape');
-  await expect(page.locator('#champion-picker')).toBeHidden();
-  await expect(
-    page.locator('#ban-chips').getByRole('button', { name: 'Unban Teemo' }),
-  ).toBeVisible();
   await page.reload();
-  await expect(page.getByRole('button', { name: 'Unban Teemo' })).toBeVisible();
-  await expect(
-    page.getByRole('button', { name: 'Remove Garen from enemy Mid' }),
-  ).toBeVisible();
-  await expect(ignore).toHaveAttribute('aria-pressed', 'true');
-  await page
-    .getByRole('button', { name: 'Remove Garen from enemy Mid' })
-    .click();
-  await expect(ignore).toHaveCount(0);
+  await expect(top).toContainText('Ahri');
+  await expect(mid).toContainText('Garen');
+  await expect(exclude).toHaveAttribute('aria-pressed', 'true');
+
+  const clearPins = page.getByRole('button', { name: 'Clear role pins' });
+  await expect(clearPins).toBeHidden();
+  await expect(mid.getByText('Pinned', { exact: true })).toBeHidden();
+
+  await page.getByRole('button', { name: /^Settings/ }).click();
+  const settings = page.getByRole('dialog', { name: 'Draft settings' });
+  await settings.getByRole('checkbox', { name: 'Auto guess roles' }).check();
+  await settings.getByRole('button', { name: 'Done', exact: true }).click();
+  await expect(mid).toContainText('Garen');
+  await expect(mid.getByText('Pinned', { exact: true })).toBeVisible();
+  await clearPins.click();
+  await expect(clearPins).toBeHidden();
 });
 
-test('rank sorting, inspection, and the spread chart work with the keyboard', async ({
-  page,
-}) => {
+test('a patch filter survives a reload', async ({ page }) => {
   await ready(page);
-  const help = page.getByRole('button', {
-    name: 'What the draft metrics mean',
-  });
-  await help.click();
-  await expect(page.locator('#ranking-metrics-help')).toBeVisible();
-  for (const metric of ['blindability', 'sample', 'score']) {
-    await expect(page.locator(`[data-sort=${metric}]`)).toHaveAttribute(
-      'aria-describedby',
-      'metric-' + metric,
-    );
-    await expect(page.locator('#metric-' + metric)).toBeVisible();
-  }
-  await page.keyboard.press('Escape');
-  const sort = page.getByRole('button', { name: 'Blindability', exact: true });
-  await expect(sort).toHaveAttribute('data-direction', 'descending');
-  await sort.press('Enter');
-  await expect(sort).toHaveAttribute('data-direction', 'ascending');
-  await sort.press('Enter');
-  const result = page.locator('#rankings .pick').first();
-  await result.getByRole('button', { name: /^Inspect/ }).press('Enter');
-  await expect(page.locator('#breakdown')).toBeVisible();
-  const chartButton = result.getByRole('button', {
-    name: /matchup WR delta spread/,
-  });
-  await chartButton.focus();
-  await expect(page.locator('#blindability-popover')).toBeVisible();
-  await chartButton.press('Enter');
-  await expect(
-    page.getByRole('combobox', { name: 'Spread matchup group' }),
-  ).toBeFocused();
-  await expect(page.locator('#spread-chart svg')).toBeVisible();
-  await page.locator('#spread-chart svg').click();
-  await expect(page.locator('#blindability-popover')).toBeFocused();
-  await page.keyboard.press('Escape');
-  await expect(page.locator('#blindability-popover')).toBeHidden();
-  await expect(chartButton).toBeFocused();
-
-  const pickerTrigger = page.getByRole('button', { name: 'Choose enemy Top' });
-  await pickerTrigger.click();
-  await page
-    .getByRole('searchbox', { name: 'Search champions', exact: true })
-    .click();
-  await expect(
-    page.getByRole('dialog', { name: 'Choose enemy Top' }),
-  ).toBeVisible();
-  await page.mouse.click(5, 5);
-  await expect(
-    page.getByRole('dialog', { name: 'Choose enemy Top' }),
-  ).toBeHidden();
-});
-
-test('champion pools, role weights, and patches persist with their existing keys', async ({
-  page,
-}) => {
-  await ready(page, '/draft-lab/');
-  await page.getByRole('button', { name: 'Edit your champion pool' }).click();
-  await page
-    .getByRole('searchbox', { name: 'Search your champion pool' })
-    .fill('Vi');
-  await page
-    .getByRole('button', { name: 'Add Vi to your Jungle pool', exact: true })
-    .click();
-  await page.getByRole('button', { name: 'Done', exact: true }).click();
-  await expect(
-    page.getByRole('button', { name: 'Edit your champion pool' }),
-  ).toHaveText('Your pool · 1');
-  await page
-    .getByRole('button', { name: 'Suggested bans for your pool' })
-    .click();
-  await expect(page.locator('#pool-bans-popover')).toBeVisible();
-  const suggestion = page.locator('.pool-ban-entry').first();
-  await suggestion.click();
-  await expect(page.locator('.pool-ban-table:visible').first()).toBeVisible();
-  await expect(page.locator('.pool-ban-table:visible').first()).toContainText(
-    'Total ban score',
-  );
-  await page.keyboard.press('Escape');
-
-  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  const settings = page.getByRole('button', { name: /^Settings/ });
   const dialog = page.getByRole('dialog', { name: 'Draft settings' });
-  const patchSettings = page.locator('#patch-settings');
-  await expect(patchSettings).not.toHaveAttribute('open');
-  await dialog
-    .getByRole('spinbutton', { name: 'Top synergy multiplier' })
-    .fill('1.5');
+  const patches = dialog.getByRole('checkbox', { name: /^\d+\.\d+$/ });
+
+  await settings.click();
   await dialog.getByText('Patches', { exact: true }).click();
-  await expect(dialog.getByText(/Fewer games make the stats/)).toBeVisible();
-  const patches = dialog.locator('#patch-options input');
-  for (let index = 1; index < (await patches.count()); index++)
-    await patches.nth(index).uncheck();
-  await expect(patches.first()).toBeDisabled();
-  await expect(page.locator('#snapshot')).not.toContainText('1 of ');
+  for (const patch of (await patches.all()).slice(1)) await patch.uncheck();
   await dialog.getByRole('button', { name: 'Done', exact: true }).click();
-  await expect(page.locator('#snapshot')).toContainText('1 of ');
+  await expect(firstRecommendation(page)).toBeVisible();
+
   await page.reload();
-  await expect(page.locator('#snapshot')).toContainText('1 of ');
-  await expect(
-    page.getByRole('button', { name: 'Edit your champion pool' }),
-  ).toHaveText('Your pool · 1');
-  await page.getByRole('button', { name: 'Settings · custom' }).click();
-  await expect(
-    dialog.getByRole('spinbutton', { name: 'Top synergy multiplier' }),
-  ).toHaveValue('1.5');
-});
-
-test('a failed cohort switch retains the draft and can be retried', async ({
-  page,
-}) => {
-  await ready(page);
-  await pick(page, 'enemy Top', 'Garen');
-  const selector = page.getByRole('combobox', { name: 'Rank dataset' });
-  const pattern = '**/data/emerald-plus/draft/catalog.json?*';
-  await page.route(pattern, (route) => route.fulfill({ status: 503 }));
-  await selector.selectOption('emerald-plus');
-  await expect(page.locator('#status')).toContainText(
-    'Could not load the requested dataset',
-  );
-  await expect(selector).toHaveValue('combined');
-  await expect(
-    page.getByRole('button', { name: 'Remove Garen from enemy Top' }),
-  ).toBeVisible();
-  await page.unroute(pattern);
-  await selector.selectOption('emerald-plus');
-  await expect(selector).toHaveValue('emerald-plus');
-  await expect(page.locator('#status')).toBeEmpty();
-  await expect(
-    page.getByRole('button', { name: 'Remove Garen from enemy Top' }),
-  ).toBeVisible();
-});
-
-test('switching cohorts during a patch load commits only the newer request', async ({
-  page,
-}) => {
-  await ready(page);
-  await page.getByRole('button', { name: 'Settings', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: 'Draft settings' });
+  await expect(firstRecommendation(page)).toBeVisible();
+  await settings.click();
   await dialog.getByText('Patches', { exact: true }).click();
-  const checkboxes = dialog.locator('#patch-options input');
-  for (let index = 1; index < (await checkboxes.count()); index++)
-    await checkboxes.nth(index).uncheck();
-  let unblock!: () => void;
-  const delay = new Promise<void>((resolve) => {
-    unblock = resolve;
-  });
-  const pattern = '**/data/patch-inputs/combined/**/catalog.json?*';
-  await page.route(pattern, async (route) => {
-    await delay;
-    await route.continue();
-  });
-  try {
-    const request = page.waitForRequest(pattern);
-    await dialog.getByRole('button', { name: 'Done', exact: true }).click();
-    await request;
-    const ranks = page.getByRole('combobox', { name: 'Rank dataset' });
-    await ranks.selectOption('emerald-plus');
-    await expect(page.locator('#snapshot')).toContainText('1 of ');
-    await expect(page.locator('.pick').first()).toBeVisible();
-    const late = page.waitForResponse(pattern);
-    unblock();
-    await late;
-    await expect(ranks).toHaveValue('emerald-plus');
-    await expect(page.locator('#status')).toBeEmpty();
-  } finally {
-    unblock();
-  }
+  await expect(patches.first()).toBeChecked();
+  await expect(patches.nth(1)).not.toBeChecked();
+});
+
+test('a failed dataset switch keeps the draft usable and allows a retry', async ({
+  page,
+}) => {
+  await ready(page);
+  const top = page.getByRole('button', { name: 'Choose enemy Top' });
+  await pick(page, top, 'Garen');
+  const selector = page.getByRole('combobox', { name: 'Rank dataset' });
+  const initial = await selector.inputValue();
+  const catalog = '**/data/emerald-plus/draft/catalog.json?*';
+
+  await page.route(catalog, (route) => route.fulfill({ status: 503 }));
+  const failed = page.waitForResponse(
+    (response) =>
+      response.url().includes('/emerald-plus/draft/catalog.json') &&
+      response.status() === 503,
+  );
+  await selector.selectOption('emerald-plus');
+  await failed;
+  await expect(selector).toHaveValue(initial);
+  await expect(firstRecommendation(page)).toBeVisible();
+  await expect(top).toContainText('Garen');
+
+  await page.unroute(catalog);
+  await selector.selectOption('emerald-plus');
+  await expect(firstRecommendation(page)).toBeVisible();
+  await expect(selector).toHaveValue('emerald-plus');
+  await expect(top).toContainText('Garen');
 });

@@ -160,7 +160,7 @@ function SlotContent({
   champion?: Champion;
   own?: boolean;
   locked?: boolean;
-  marker?: string;
+  marker?: 'fixed' | 'uncertain';
   hint?: string;
 }) {
   return (
@@ -174,13 +174,8 @@ function SlotContent({
         <span className="slot-role">
           {ROLE_NAMES[role]}
           {marker && (
-            <span
-              className={
-                'role-marker ' + (marker === 'SET' ? 'fixed' : 'uncertain')
-              }
-              title={marker === 'SET' ? 'Manual role correction' : hint}
-            >
-              {marker}
+            <span className={'role-marker ' + marker} title={hint}>
+              {marker === 'fixed' ? 'Pinned' : '?'}
             </span>
           )}
           {own && (
@@ -213,6 +208,7 @@ export function TeamBoard({
       draft,
       roster,
       clientOwnChampion,
+      autoRoles,
       roleOverrides,
       roleDetails,
       ignoredPicks,
@@ -239,15 +235,16 @@ export function TeamBoard({
           const own = allied && role === draft.role;
           const id = own ? (clientOwnChampion ?? selected) : draft[side][role];
           const champion = id === null ? undefined : roster.get(id);
-          const fixed = !own && id !== null && roleOverrides[side][id] === role;
+          const pinned =
+            autoRoles && !own && id !== null && roleOverrides[side][id] === role;
           const guess = !own && id !== null ? roleDetails[side][id] : undefined;
           const uncertain =
-            !fixed &&
+            !pinned &&
             guess &&
             (guess.unsupported || guess.alternatives.length > 0);
           const ignored = !own && id !== null && ignoredPicks.includes(id);
-          const hint = fixed
-            ? 'Manual role. Auto guess roles will keep this correction.'
+          const hint = pinned
+            ? 'Pinned to this role. Drag to move.'
             : uncertain
               ? guess.unsupported
                 ? 'Limited role data. Drag to correct.'
@@ -267,7 +264,7 @@ export function TeamBoard({
               champion={champion}
               own={own}
               locked={clientOwnChampion !== null}
-              marker={fixed ? 'SET' : uncertain ? '?' : undefined}
+              marker={pinned ? 'fixed' : uncertain ? 'uncertain' : undefined}
               hint={hint}
             />
           );
@@ -302,6 +299,7 @@ export function TeamBoard({
                   data-role={role}
                   title={champion ? hint : ''}
                   aria-label={`Choose ${team} ${ROLE_NAMES[role]}`}
+                  aria-description={pinned ? 'Pinned to this role' : undefined}
                   disabled={pending}
                   onClick={() => openPicker({ side, role })}
                   onDragStart={(event) => event.preventDefault()}
