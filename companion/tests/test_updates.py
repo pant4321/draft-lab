@@ -1,6 +1,9 @@
 import copy
+from hashlib import sha256
 import io
 import json
+from pathlib import Path
+import tempfile
 import threading
 import unittest
 from unittest.mock import patch
@@ -110,6 +113,43 @@ class UpdateTests(unittest.TestCase):
                 self.assertEqual(state.read()["update"], {"status": "unavailable"})
                 self.assertEqual(state.read()["status"], "connected")
                 self.assertNotIn("PRIVATE", json.dumps(state.read()))
+
+    def test_installed_update_verifies_download_before_handoff_and_keeps_app_open_on_failure(self):
+        payload = b'installer fixture'
+        value = release('0.1.12')
+        url = f"{REPOSITORY_URL}/releases/download/{value['tag_name']}/{INSTALLER_NAME}"
+        asset = {"name": INSTALLER_NAME, "state": "uploaded", "size": len(payload),
+                 "browser_download_url": url}
+        value['assets'].append(asset)
+        with tempfile.TemporaryDirectory() as directory:
+            exe = Path(directory) / 'DraftLab.exe'
+            with patch('companion.updates.installed_executable', return_value=exe):
+                state, stop = State(), threading.Event()
+                checker = UpdateChecker(state, stop, '0.1.11')
+            self.assertFalse(checker.can_install(release_update(value, checker.current_version)))
+            asset['digest'] = 'sha256:' + sha256(payload).hexdigest()
+            update = release_update(value, checker.current_version)
+
+            with (patch('companion.updates.build_opener') as opener,
+                  patch('companion.updates.launch_installer') as launch,
+                  patch('companion.updates.tempfile.gettempdir', return_value=directory)):
+                opener.return_value.open.return_value = io.BytesIO(b'wrong download!!!')
+                checker.install(update).join(timeout=3)
+                self.assertEqual(state.read()['update']['status'], 'install_failed')
+                self.assertFalse(stop.is_set())
+                launch.assert_not_called()
+                self.assertEqual(list(Path(directory).iterdir()), [])
+
+                def handoff(installer, executable):
+                    self.assertFalse(stop.is_set())
+                    self.assertEqual(installer.read_bytes(), payload)
+                    self.assertEqual(executable, exe)
+
+                opener.return_value.open.return_value = io.BytesIO(payload)
+                launch.side_effect = handoff
+                checker.install(update).join(timeout=3)
+                launch.assert_called_once()
+                self.assertTrue(stop.is_set())
 
 
 if __name__ == "__main__":

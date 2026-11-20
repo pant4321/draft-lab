@@ -6,7 +6,7 @@
 2. On DraftEdge, choose **Companion → Open Companion**. Allow the app to open and grant local access if prompted. The app starts or reuses the running companion and connects the tab you clicked from, including a local preview at `127.0.0.1`.
 3. Leave the companion open with League while drafting. Starting the app from Start opens the launcher. Use **Open DraftEdge** inside the launcher whenever you want it to open the live site for you.
 
-To upgrade, quit the companion and run the newer installer. To uninstall, go to **Settings → Apps → Installed apps → DraftEdge Companion**. Setup stores the application separately from your saved League folder, so that preference is available after upgrading or reinstalling.
+To uninstall, go to **Settings → Apps → Installed apps → DraftEdge Companion**. Setup stores the application separately from your saved League folder, so that preference is available after upgrading or reinstalling.
 
 The release also includes a portable copy, `DraftLab.exe`. Run it directly and choose **Open DraftEdge** inside the launcher to connect. The installer registers the website's **Open Companion** link. Both editions bundle the Windows x64 League bridge, Python runtime, and Riot's local client CA certificate. The live site loads from GitHub Pages and requires internet access. Refresh the page to receive published website changes.
 
@@ -24,7 +24,9 @@ When a new launcher session needs browser permission, choose **Connect to League
 
 The companion makes one background request at startup to GitHub's latest stable release endpoint for `pant4321/draft-lab`. It compares numeric `companion-vMAJOR.MINOR.PATCH` versions and checks that the published download belongs to that release. Version 0.1.8 and later prefer `DraftEdgeCompanionSetup.exe`, with `DraftLab.exe` as a fallback. The request sends the app version and ordinary HTTP request metadata. [GitHub release API](https://docs.github.com/en/rest/releases/releases#get-the-latest-release)
 
-A newer version shows **Download update** in the launcher. It opens the release download in the browser. Quit the companion before running the installer. Equal or older releases show **Up to date**. Network errors, invalid metadata, or rate limits show **Update check unavailable** with **Retry**. The background request has a five-second timeout and a 512 KiB response cap.
+Starting with 0.1.12, an installed copy shows **Update** when a newer installer has a published SHA-256 digest. One click downloads and verifies the installer before closing the companion. Windows runs setup in the background and reopens the app in the same installation folder. A failed download leaves the companion running and offers **Retry update**. Portable copies and releases without a verifiable installer offer **Download update** for a manual upgrade. To upgrade manually, quit the companion and run the newer installer.
+
+Equal or older releases show **Up to date**. Network errors, invalid metadata, or rate limits show **Update check unavailable** with **Retry**. The metadata request has a five-second timeout and a 512 KiB response cap.
 
 `--no-update-check` disables the request for offline smoke tests. Source UI testing can use `python -m companion.tests.update_preview --ready-file build/update-preview.json` to preview an older installed version with a simulated League connection.
 

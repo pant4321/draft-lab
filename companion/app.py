@@ -21,7 +21,7 @@ from companion.pairing import LIVE_ORIGINS, PAIRING_PORTS, PendingPairings, allo
 from companion.updates import UpdateChecker
 from companion.windows_launch import WindowsActivation, parse_activation_args
 
-VERSION = "0.1.11"
+VERSION = "0.1.12"
 LIVE_SITE = "https://pant4321.github.io/draft-lab/"
 LIVE_ORIGIN = "https://pant4321.github.io"
 BRIDGE_PROTOCOL = 1
@@ -270,7 +270,18 @@ def launcher(server, poller, stop, updates, title="DraftEdge Companion", *, acti
             text = "Checking for updates…" if status == "checking" else "Up to date" if status == "current" else "Update check unavailable"
             if status == "available":
                 text = f"v{update['latestVersion']} available"
-                update_button.configure(text="Download update", command=lambda url=update["downloadUrl"]: webbrowser.open(url))
+                if updates.can_install(update):
+                    update_button.configure(text="Update", command=lambda choice=update: updates.install(choice))
+                else:
+                    update_button.configure(text="Download update", command=lambda url=update["downloadUrl"]: webbrowser.open(url))
+                update_button.pack(side="right")
+            elif status == "downloading":
+                text = "Downloading update…"
+            elif status == "installing":
+                text = "Installing update…"
+            elif status == "install_failed":
+                text = "Could not start update"
+                update_button.configure(text="Retry update", command=lambda choice=update: updates.install(choice))
                 update_button.pack(side="right")
             elif status == "unavailable":
                 update_button.configure(text="Retry", command=updates.start)
@@ -341,7 +352,7 @@ def run(args, activation=None):
         polling = threading.Thread(target=poller.run, daemon=True)
         polling.start()
         threads.append(polling)
-        updates = UpdateChecker(state, stop, VERSION)
+        updates = UpdateChecker(state, stop, VERSION, request_stop=server.request_stop)
         if args.no_update_check:
             state.publish_update({"status": "disabled"})
         else:
