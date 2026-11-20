@@ -1,8 +1,15 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import type { MouseEvent as ReactMouseEvent } from 'react';
 import { ROLE_NAMES } from '../domain/draft-math';
 import { customMultipliers } from '../domain/draft-weights';
 import { ROLES } from '../domain/types';
 import type { Role } from '../domain/types';
+import type { CompanionState } from '../services/companion';
+import {
+  createCompanionOffer,
+  waitForCompanion,
+} from '../services/companion-session';
+import type { CompanionSessionFields } from '../services/companion-session';
 import type { DraftLab } from '../useDraftLab';
 import { RoleIcon } from './RoleIcon';
 import { Dialog } from './shared';
@@ -50,7 +57,7 @@ export function Header({
           aria-controls="companion-download-dialog"
           onClick={onDownload}
         >
-          Companion ↓
+          Companion
         </button>
       </nav>
       <div className="header-data">
@@ -84,7 +91,23 @@ export function Header({
   );
 }
 
-function CompanionControls({ lab }: { lab: DraftLab }) {
+export type CompanionDialogMode = 'open' | 'reconnect' | 'reopen' | 'update';
+const recoveryActions: Partial<
+  Record<CompanionState['control'], { mode: CompanionDialogMode; label: string }>
+> = {
+  Offline: { mode: 'reconnect', label: 'Reconnect' },
+  Expired: { mode: 'reconnect', label: 'Reconnect' },
+  Closed: { mode: 'reopen', label: 'Reopen Companion' },
+  Update: { mode: 'update', label: 'Update Companion' },
+};
+
+function CompanionControls({
+  lab,
+  onCompanion,
+}: {
+  lab: DraftLab;
+  onCompanion: (mode: CompanionDialogMode) => void;
+}) {
   const { companion, companionState: state } = lab;
   const details = useRef<HTMLDetailsElement>(null);
   const trigger = useRef<HTMLElement>(null);
@@ -113,16 +136,21 @@ function CompanionControls({ lab }: { lab: DraftLab }) {
     };
   }, []);
 
-  useEffect(() => {
-    if (state.control === 'Closed' && details.current)
-      details.current.open = false;
-  }, [state.control]);
-
   function closeMenu() {
     if (details.current) details.current.open = false;
+    trigger.current?.focus();
   }
   const pauseLabel = state.paused ? 'Resume live sync' : 'Pause live sync';
   const denied = state.control === 'Blocked';
+  const recovery = recoveryActions[state.control];
+  const needsPermission = state.control === 'Connect' || denied;
+
+  function recover() {
+    if (!recovery) return;
+    if (state.prompt) companion.current?.dismiss();
+    onCompanion(recovery.mode);
+  }
+
   return (
     <>
       <div
@@ -139,32 +167,37 @@ function CompanionControls({ lab }: { lab: DraftLab }) {
           <div className="companion-menu">
             <h3>League connection</h3>
             <p id="companion-status" role="status">
-              {lab.state.notice || state.message}
+              {state.message}
             </p>
-            <button
-              id="connect-companion"
-              className="ghost"
-              hidden={!state.showConnect}
-              disabled={state.busy || state.control === 'Expired'}
-              onClick={() => {
-                closeMenu();
-                companion.current?.open();
-              }}
-            >
-              {['Offline', 'Expired', 'Update'].includes(state.control)
-                ? 'Reconnect'
-                : 'Connect to League'}
-            </button>
-            <button
-              id="quit-companion"
-              className="ghost"
-              disabled={!state.connected || state.busy}
-              onClick={async () => {
-                await companion.current?.quit();
-              }}
-            >
-              {'Quit companion'}
-            </button>
+            {state.quitError && <p role="alert">{state.quitError}</p>}
+            {(recovery || needsPermission) && (
+              <button
+                type="button"
+                className="ghost"
+                onClick={() => {
+                  closeMenu();
+                  if (recovery) recover();
+                  else companion.current?.open();
+                }}
+              >
+                {recovery?.label ??
+                  (denied ? 'Review local access' : 'Connect to League')}
+              </button>
+            )}
+            {state.connected && (
+              <button
+                id="quit-companion"
+                type="button"
+                className="ghost"
+                disabled={state.busy}
+                onClick={() => {
+                  trigger.current?.focus();
+                  void companion.current?.quit();
+                }}
+              >
+                {state.busy ? 'Quitting…' : 'Quit companion'}
+              </button>
+            )}
           </div>
         </details>
         <button
@@ -174,7 +207,7 @@ function CompanionControls({ lab }: { lab: DraftLab }) {
           aria-label={pauseLabel}
           title={pauseLabel}
           data-paused={state.paused}
-          disabled={!state.connected}
+          disabled={!state.connected || state.busy}
           onClick={() =>
             state.paused
               ? companion.current?.resume()
@@ -228,20 +261,25 @@ function CompanionControls({ lab }: { lab: DraftLab }) {
           Fill your draft automatically from champion select.
         </p>
         <p id="connection-help">
-          {denied
+          {recovery
+            ? state.message
+            : denied
             ? 'Local access is blocked. Allow it in your browser’s site settings, then try again.'
             : 'Choose Allow when your browser asks to access apps and services on this device.'}
         </p>
         <button
           id="connection-connect"
           className="connection-primary"
-          disabled={state.busy || state.control === 'Expired'}
-          onClick={() => void companion.current?.connect()}
+          disabled={state.busy}
+          onClick={() => {
+            if (recovery) recover();
+            else void companion.current?.connect();
+          }}
         >
-          {denied ? 'Try again' : 'Connect to League'}
+          {recovery?.label ?? (denied ? 'Try again' : 'Connect to League')}
         </button>
         <p id="connection-progress" role="status">
-          {state.progress}
+          {recovery ? '' : state.progress}
         </p>
         <button
           id="connection-later"
@@ -258,12 +296,14 @@ function CompanionControls({ lab }: { lab: DraftLab }) {
 export function Controls({
   lab,
   hasCompanion,
+  onCompanion,
   settings,
   changeRole,
   reset,
 }: {
   lab: DraftLab;
   hasCompanion: boolean;
+  onCompanion: (mode: CompanionDialogMode) => void;
   settings: () => void;
   changeRole: (role: Role) => void;
   reset: () => void;
@@ -323,65 +363,146 @@ export function Controls({
         <button id="reset" className="ghost" onClick={reset}>
           Reset draft
         </button>
-        {hasCompanion && lab.initialized && <CompanionControls lab={lab} />}
+        {hasCompanion && lab.initialized && (
+          <CompanionControls lab={lab} onCompanion={onCompanion} />
+        )}
       </div>
     </div>
   );
 }
 
-export function DownloadDialog({
-  open,
+export function CompanionDialog({
+  mode,
   close,
+  onPaired,
+  retryConnection,
 }: {
-  open: boolean;
+  mode: CompanionDialogMode | null;
   close: () => void;
+  onPaired: (session: CompanionSessionFields) => void;
+  retryConnection?: () => void;
 }) {
+  const [offer, setOffer] = useState(createCompanionOffer);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+  const pairing = useRef<AbortController | null>(null);
+  useEffect(() => () => pairing.current?.abort(), []);
+
+  function closeDialog() {
+    pairing.current?.abort();
+    pairing.current = null;
+    setBusy(false);
+    setMessage('');
+    setOffer(createCompanionOffer());
+    close();
+  }
+
+  async function openCompanion(event: ReactMouseEvent<HTMLAnchorElement>) {
+    if (!offer || pairing.current) {
+      event.preventDefault();
+      return;
+    }
+    const attempt = new AbortController();
+    pairing.current = attempt;
+    setBusy(true);
+    setMessage(
+      'Allow the companion to open and grant local access if prompted.',
+    );
+    const result = await waitForCompanion(offer, attempt.signal).catch(
+      () => null,
+    );
+    if (attempt.signal.aborted) return;
+    pairing.current = null;
+    setBusy(false);
+    setOffer(createCompanionOffer());
+    if (result === 'blocked') {
+      setMessage(
+        'Allow local access in your browser’s site settings, then try Open Companion again.',
+      );
+    } else if (!result) {
+      setMessage('Could not reach the companion. Check that it opened, then try again.');
+    } else {
+      setMessage('');
+      onPaired(result);
+    }
+  }
+
   return (
     <Dialog
       id="companion-download-dialog"
-      open={open}
-      close={close}
+      open={mode !== null}
+      close={closeDialog}
+      focus=".companion-download-button"
       aria-labelledby="companion-download-title"
       aria-describedby="companion-download-description companion-download-requirements"
     >
       <div className="picker-head">
-        <h2 id="companion-download-title">Draft Lab Companion</h2>
+        <h2 id="companion-download-title">DraftEdge Companion</h2>
         <button
           id="companion-download-close"
           type="button"
-          aria-label="Close companion download"
-          onClick={close}
+          aria-label="Close companion setup"
+          onClick={closeDialog}
         >
           ×
         </button>
       </div>
       <p id="companion-download-description">
-        Import picks, bans, and your assigned role automatically from champion
-        select.
+        {mode === 'update'
+          ? 'Install the latest companion to reconnect this tab.'
+          : mode === 'reconnect' || mode === 'reopen'
+            ? 'Open the companion to reconnect League to this tab.'
+            : 'Connect this tab to League to import picks, bans, and your assigned role.'}
       </p>
-      <ol className="companion-download-steps">
-        <li>
-          <strong>Download and run DraftLab.exe.</strong>
-          <span>The launcher opens DraftEdge in your browser.</span>
-        </li>
-        <li>
-          <strong>Keep the launcher and League open.</strong>
-          <span>Your draft updates as champions are locked in.</span>
-        </li>
-        <li>
-          <strong>Choose Connect to League.</strong>
-          <span>Allow local access when your browser asks.</span>
-        </li>
-      </ol>
-      <a
-        id="companion-download"
-        className="companion-download-button"
-        href="https://github.com/pant4321/draft-lab/releases/latest/download/DraftLab.exe"
-      >
-        Download for Windows ↓
-      </a>
+      <div className="companion-download-actions">
+        {offer && mode !== 'update' && (
+          <a
+            className="companion-download-button"
+            href={offer.url}
+            onClick={(event) => void openCompanion(event)}
+            aria-disabled={busy}
+          >
+            {busy ? 'Connecting…' : 'Open Companion'}
+          </a>
+        )}
+        {mode === 'reconnect' && retryConnection && (
+          <button
+            type="button"
+            className="ghost"
+            disabled={busy}
+            onClick={() => {
+              closeDialog();
+              retryConnection();
+            }}
+          >
+            Retry existing connection
+          </button>
+        )}
+        <a
+          className={
+            offer && mode !== 'update' ? 'ghost' : 'companion-download-button'
+          }
+          href="https://github.com/pant4321/draft-lab/releases/latest/download/DraftEdgeCompanionSetup.exe"
+        >
+          Download installer
+        </a>
+      </div>
+      {message && (
+        <p className="companion-download-help" role="status">
+          {message}
+        </p>
+      )}
       <p id="companion-download-requirements">
-        Windows · League client required
+        Windows x64 · League client required. Windows may warn when opening the
+        unsigned beta installer.
+      </p>
+      <p className="companion-download-help">
+        {mode !== 'update' &&
+          offer &&
+          'If the app doesn’t open, install it or search Start for DraftEdge Companion. '}
+        <a href="https://github.com/pant4321/draft-lab/releases/latest/download/DraftLab.exe">
+          Portable download
+        </a>
       </p>
     </Dialog>
   );

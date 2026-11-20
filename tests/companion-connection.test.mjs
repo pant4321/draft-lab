@@ -1,6 +1,6 @@
 import {test} from 'vitest';
 import assert from 'node:assert/strict';
-import {prepareCompanionSession,loopbackPermission} from '../web/src/services/companion-session.ts';
+import {prepareCompanionSession,loopbackPermission,rememberCompanionReconnect,reconnectCompanion} from '../web/src/services/companion-session.ts';
 import {createCompanionClient} from '../web/src/services/companion.ts';
 const token='a'.repeat(43),live='https://draftedge.website/';
 function storage(){const values=new Map();return {getItem:key=>values.get(key)??null,setItem:(key,value)=>values.set(key,value),removeItem:key=>values.delete(key)};}
@@ -13,7 +13,7 @@ test('companion launch uses only loopback, removes the token before other script
  const session=prepareCompanionSession(environment);
  assert.deepEqual(session,{token,port:8766,origin:'http://127.0.0.1:8766'});
  assert.equal(environment.location.href,live);
- assert.deepEqual(prepareCompanionSession(environment),session);
+ assert.deepEqual(prepareCompanionSession(environment),{...session,restored:'live'});
  assert.deepEqual(prepareCompanionSession(page('https://pant4321.github.io/draft-lab/#companion='+token+'&port=8766')),session);
  assert.equal(prepareCompanionSession(page()),null);
  assert.equal(prepareCompanionSession(page('https://evil.example/#companion='+token+'&port=8766')),null);
@@ -32,7 +32,7 @@ test('invalid launch cannot reuse a previous token; session storage failure stil
  assert.equal(prepareCompanionSession(blocked).port,8767);assert.equal(blocked.location.href,live);
 });
 
-function fixture(permissionState = 'prompt') {
+function fixture(permissionState = 'prompt', restored) {
  const requests = [], timers = new Map(), states = [], snapshots = [];
  let nextTimer = 0;
  const permission = {
@@ -52,7 +52,7 @@ function fixture(permissionState = 'prompt') {
   clearTimeout(id) { timers.delete(id); },
   async fetch(url, options) { requests.push({ url, options }); return response(); },
  };
- const client = createCompanionClient({ token, port: 8766, origin: 'http://127.0.0.1:8766' }, (state, snapshot) => {
+ const client = createCompanionClient({ token, port: 8766, origin: 'http://127.0.0.1:8766', restored }, (state, snapshot) => {
   states.push(state);
   if (snapshot) snapshots.push(snapshot);
  }, environment);
@@ -68,7 +68,7 @@ test('permission waits for a click; authenticated loopback imports only draft fi
  assert.equal(f.requests.length, 0);
  await f.client.connect();
  const [request] = f.requests;
- assert.equal(request.url, 'http://127.0.0.1:8766/api/state');
+ assert.equal(new URL(request.url).origin + new URL(request.url).pathname, 'http://127.0.0.1:8766/api/state');
  assert.equal(request.options.headers['X-DraftLab-Session'], token);
  assert.equal(request.options.credentials, 'omit');
  assert.equal(request.options.targetAddressSpace, 'loopback');
@@ -77,7 +77,6 @@ test('permission waits for a click; authenticated loopback imports only draft fi
   allies: [{ id: 516, role: 'top' }], enemies: [], bans: [] }]);
  assert.equal(f.latest().control, 'Live');
  assert.equal(f.latest().prompt, false);
- assert.equal(f.latest().showConnect, false);
  f.client.pause();
  assert.equal(f.latest().syncing, false);
  assert.equal(f.latest().control, 'Paused');
@@ -114,6 +113,41 @@ test('granted access connects automatically, deduplicates polls, and cleans up o
  assert.equal(f.snapshots.length, 1);
 });
 
+test('restored sessions that need browser permission leave setup available on demand', async () => {
+ for (const f of [fixture('prompt', 'live'), fixture('denied', 'preview')]) {
+  await f.client.start();
+  assert.equal(f.requests.length, 0);
+  assert.equal(f.latest().prompt, false);
+  f.client.open();
+  assert.equal(f.latest().prompt, true);
+  f.client.dispose();
+ }
+});
+
+test('a remembered live connection waits for browser permission and drops a rejected key', async () => {
+ const key = 'r'.repeat(43), requests = [];
+ const permission = { state: 'prompt' };
+ const environment = {
+  ...page(),
+  localStorage: storage(),
+  navigator: { permissions: { query: async () => permission } },
+  async fetch(url, options) {
+   requests.push({ url, options });
+   return { ok: false, status: 403 };
+  },
+ };
+ rememberCompanionReconnect(key, 8766, environment);
+ const { signal } = new AbortController();
+ assert.equal(await reconnectCompanion(signal, environment), null);
+ assert.equal(requests.length, 0);
+ permission.state = 'granted';
+ assert.equal(await reconnectCompanion(signal, environment), null);
+ assert.equal(requests[0].url, 'http://127.0.0.1:8766/api/reconnect');
+ assert.equal(requests[0].options.headers['X-DraftLab-Reconnect'], key);
+ assert.equal(await reconnectCompanion(signal, environment), null);
+ assert.equal(requests.length, 1);
+});
+
 test('denied or unsupported permission keeps manual drafting available and expired sessions stop retrying', async () => {
  assert.equal(await loopbackPermission({ permissions: { query() { throw Error('unsupported'); } } }), null);
  const f = fixture('denied');
@@ -131,7 +165,7 @@ test('denied or unsupported permission keeps manual drafting available and expir
  await f.client.connect();
  assert.equal(f.latest().control, 'Expired');
  assert.equal(f.latest().syncing, false);
- assert.match(f.latest().progress, /expired/);
+ assert.match(f.latest().message, /expired/);
  assert.equal(f.timers.size, 0);
  assert.equal(f.environment.sessionStorage.getItem('draftlab-companion-v1'), null);
 });
@@ -159,8 +193,12 @@ test('quit reports failures, then closes only after an authenticated shutdown su
  await f.client.connect();
  f.environment.fetch = async () => { throw Error('offline'); };
  await f.client.quit();
- assert.match(f.latest().message, /Could not close/);
+ assert.equal(f.latest().connected, true);
+ assert.match(f.latest().quitError, /Could not close/);
  assert.equal(f.timers.size, 1);
+ f.environment.fetch = async () => f.response();
+ await f.timers.values().next().value.callback();
+ assert.match(f.latest().quitError, /Could not close/);
  f.environment.fetch = async (url, options) => {
   assert.equal(url, 'http://127.0.0.1:8766/api/quit');
   assert.equal(options.method, 'POST');
@@ -170,6 +208,6 @@ test('quit reports failures, then closes only after an authenticated shutdown su
  await f.client.quit();
  assert.equal(f.timers.size, 0);
  assert.equal(f.latest().control, 'Closed');
- assert.equal(f.latest().showConnect, false);
+ assert.equal(f.latest().quitError, '');
  assert.equal(f.latest().connected, false);
 });

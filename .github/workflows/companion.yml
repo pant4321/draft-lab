@@ -26,13 +26,40 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
+      - name: Check release tag
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          $version = python -c "from companion.app import VERSION; print(VERSION)"
+          if ($env:GITHUB_REF_NAME -ne "companion-v$version") {
+            throw 'The release tag must match the companion version.'
+          }
       - name: Install build tooling
         run: python -m pip install -r companion/requirements-build.txt
       - name: Test and build
         run: python companion/build.py
       - name: Smoke test executable
         run: python companion/smoke.py build/companion-release/DraftLab.exe
+      - name: Install Inno Setup
+        run: |
+          $setup = Join-Path $env:RUNNER_TEMP 'innosetup-7.1.1-x64.exe'
+          $innoDir = Join-Path $env:RUNNER_TEMP 'DraftEdgeInno'
+          Invoke-WebRequest 'https://github.com/jrsoftware/issrc/releases/download/is-7_1_1/innosetup-7.1.1-x64.exe' -OutFile $setup
+          if ((Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash -ne '8a5a6711c3766a6e5fb74f280ba0e3551e719ce94538d901fdbd1f8f9920b3f0') {
+            throw 'Inno Setup download failed checksum verification.'
+          }
+          $installerOptions = @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/NOICONS', '/CURRENTUSER', '/TASKS=""', ('/DIR="' + $innoDir + '"'))
+          $process = Start-Process -FilePath $setup -ArgumentList $installerOptions -WindowStyle Hidden -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Inno Setup failed with exit code $($process.ExitCode)" }
+          "DRAFTEDGE_ISCC=$(Join-Path $innoDir 'ISCC.exe')" >> $env:GITHUB_ENV
+      - name: Package companion and checksums
+        run: python -m companion.installer --iscc $env:DRAFTEDGE_ISCC
+      - name: Test install, launch, upgrade, and uninstall
+        run: python -m companion.smoke_installer --iscc $env:DRAFTEDGE_ISCC
       - uses: actions/upload-artifact@v4
         with:
           name: DraftLab-Windows
-          path: build/companion-release/DraftLab.exe
+          path: |
+            build/companion-release/DraftLab.exe
+            build/companion-release/DraftLab.exe.sha256
+            build/companion-release/DraftEdgeCompanionSetup.exe
+            build/companion-release/DraftEdgeCompanionSetup.exe.sha256

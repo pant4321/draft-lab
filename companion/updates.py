@@ -9,6 +9,8 @@ from urllib.request import Request, urlopen
 REPOSITORY_URL = "https://github.com/pant4321/draft-lab"
 LATEST_API_URL = "https://api.github.com/repos/pant4321/draft-lab/releases/latest"
 MAX_RESPONSE_BYTES = 512 * 1024
+INSTALLER_NAME = "DraftEdgeCompanionSetup.exe"
+PORTABLE_NAME = "DraftLab.exe"
 
 
 def version_tuple(value):
@@ -18,7 +20,7 @@ def version_tuple(value):
 
 
 def release_update(release, current_version):
-    """Accept only stable companion tags with an uploaded executable in our repo."""
+    """Accept uploaded assets from stable companion releases in this repo."""
     if not isinstance(release, dict) or release.get("draft") is not False or release.get("prerelease") is not False:
         raise ValueError("No stable release available.")
     tag = release.get("tag_name", "")
@@ -27,15 +29,16 @@ def release_update(release, current_version):
     latest = tag[len("companion-v"):]
     if version_tuple(latest) <= version_tuple(current_version):
         return {"status": "current", "latestVersion": latest}
-    download = f"{REPOSITORY_URL}/releases/download/{tag}/DraftLab.exe"
     assets = release.get("assets")
-    if not isinstance(assets, list) or not any(
-            isinstance(asset, dict) and asset.get("name") == "DraftLab.exe"
-            and asset.get("state") == "uploaded" and type(asset.get("size")) is int
-            and asset["size"] > 0 and asset.get("browser_download_url") == download
-            for asset in assets):
-        raise ValueError("Release download is not ready.")
-    return {"status": "available", "latestVersion": latest, "downloadUrl": download}
+    for name in (INSTALLER_NAME, PORTABLE_NAME):
+        download = f"{REPOSITORY_URL}/releases/download/{tag}/{name}"
+        if isinstance(assets, list) and any(
+                isinstance(asset, dict) and asset.get("name") == name
+                and asset.get("state") == "uploaded" and type(asset.get("size")) is int
+                and asset["size"] > 0 and asset.get("browser_download_url") == download
+                for asset in assets):
+            return {"status": "available", "latestVersion": latest, "downloadUrl": download}
+    raise ValueError("Release download is not ready.")
 
 
 def check_latest(current_version):

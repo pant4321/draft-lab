@@ -7,7 +7,7 @@ from unittest.mock import patch
 from urllib.error import HTTPError
 
 from companion.app import State
-from companion.updates import (LATEST_API_URL, MAX_RESPONSE_BYTES, REPOSITORY_URL,
+from companion.updates import (INSTALLER_NAME, LATEST_API_URL, MAX_RESPONSE_BYTES, REPOSITORY_URL,
                                UpdateChecker, check_latest, release_update, version_tuple)
 
 
@@ -46,6 +46,17 @@ class UpdateTests(unittest.TestCase):
         value["assets"] = []
         with self.assertRaises(ValueError):
             release_update(value, "0.1.3")
+
+    def test_update_prefers_the_installer_and_ignores_an_invalid_installer(self):
+        value = release()
+        installer_url = f"{REPOSITORY_URL}/releases/download/{value['tag_name']}/{INSTALLER_NAME}"
+        value["assets"].append({
+            "name": INSTALLER_NAME, "state": "uploaded", "size": 18000000,
+            "browser_download_url": installer_url,
+        })
+        self.assertEqual(release_update(value, "0.1.3")["downloadUrl"], installer_url)
+        value["assets"][-1]["browser_download_url"] = "https://example.com/setup.exe"
+        self.assertEqual(release_update(value, "0.1.3")["downloadUrl"], value["assets"][0]["browser_download_url"])
 
     def test_public_metadata_request_is_bounded_and_contains_no_authentication(self):
         with patch("companion.updates.urlopen", return_value=io.BytesIO(json.dumps(release()).encode())) as fetch:

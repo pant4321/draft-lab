@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Breakdown } from './components/Breakdown';
 import { FloatingSlot, TeamBoard, useBoardDrag } from './components/DraftBoard';
 import type { PickerTarget } from './components/DraftBoard';
@@ -11,13 +11,25 @@ import { Bans, TeamEdge } from './components/DraftTotals';
 import { Recommendations } from './components/Recommendations';
 import { useSpread } from './components/Spread';
 import { Explanations } from './components/StaticContent';
-import { Controls, DownloadDialog, Header } from './components/Toolbar';
+import { CompanionDialog, Controls, Header } from './components/Toolbar';
+import type { CompanionDialogMode } from './components/Toolbar';
 import type { Role } from './domain/types';
+import { createCompanionClient } from './services/companion';
 import type { CompanionConnector } from './services/companion';
+import { reconnectCompanion, rememberCompanionSession } from './services/companion-session';
+import type { CompanionSessionFields } from './services/companion-session';
 import { useDraftLab } from './useDraftLab';
 
+function pairedConnector(value: CompanionSessionFields): CompanionConnector {
+  const session = rememberCompanionSession(value);
+  return (onChange) => createCompanionClient(session, onChange);
+}
+
 export function App({ connect }: { connect: CompanionConnector | null }) {
-  const lab = useDraftLab(connect);
+  const [pairedConnect, setPairedConnect] = useState<CompanionConnector | null>(
+    null,
+  );
+  const lab = useDraftLab(pairedConnect ?? connect, pairedConnect !== null);
   const { state, selected, manual, blind } = lab;
   const [search, setSearch] = useState('');
   const [picker, setPicker] = useState<{
@@ -29,9 +41,33 @@ export function App({ connect }: { connect: CompanionConnector | null }) {
     openings: 0,
   });
   const [settings, setSettings] = useState(false);
-  const [download, setDownload] = useState(false);
+  const [companionDialog, setCompanionDialog] =
+    useState<CompanionDialogMode | null>(null);
+  const reconnectAttempt = useRef<AbortController | null>(null);
   const spread = useSpread(blind, state.roster, state.draft.role);
   const drag = useBoardDrag(lab, spread.hide);
+
+  useEffect(() => {
+    if (connect || pairedConnect) return;
+    const attempt = new AbortController();
+    reconnectAttempt.current = attempt;
+    void reconnectCompanion(attempt.signal).then((value) => {
+      if (value && !attempt.signal.aborted) {
+        const connector = pairedConnector(value);
+        setPairedConnect(() => connector);
+      }
+    });
+    return () => {
+      attempt.abort();
+      reconnectAttempt.current = null;
+    };
+  }, [connect, pairedConnect]);
+
+  function openCompanionDialog(mode: CompanionDialogMode) {
+    reconnectAttempt.current?.abort();
+    spread.hide();
+    setCompanionDialog(mode);
+  }
 
   function openPicker(target: PickerTarget) {
     if (lab.pending || !lab.initialized) return;
@@ -55,14 +91,12 @@ export function App({ connect }: { connect: CompanionConnector | null }) {
       <main>
         <Header
           lab={lab}
-          onDownload={() => {
-            spread.hide();
-            setDownload(true);
-          }}
+          onDownload={() => openCompanionDialog('open')}
         />
         <Controls
           lab={lab}
-          hasCompanion={Boolean(connect)}
+          hasCompanion={Boolean(pairedConnect ?? connect)}
+          onCompanion={openCompanionDialog}
           settings={() => {
             spread.hide();
             setSettings(true);
@@ -109,7 +143,21 @@ export function App({ connect }: { connect: CompanionConnector | null }) {
         </div>
         <Explanations />
       </main>
-      <DownloadDialog open={download} close={() => setDownload(false)} />
+      <CompanionDialog
+        mode={companionDialog}
+        close={() => setCompanionDialog(null)}
+        retryConnection={
+          lab.companionState.control === 'Offline'
+            ? () => lab.companion.current?.open()
+            : undefined
+        }
+        onPaired={(value) => {
+          lab.companion.current?.dispose();
+          const connector = pairedConnector(value);
+          setPairedConnect(() => connector);
+          setCompanionDialog(null);
+        }}
+      />
       <SettingsDialog
         lab={lab}
         open={settings}

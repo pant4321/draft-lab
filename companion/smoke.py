@@ -14,13 +14,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from companion.app import VERSION, LIVE_SITE, LIVE_ORIGIN, LIVE_ORIGINS
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('executable', type=Path)
-    args = parser.parse_args()
+def smoke(executable):
     with tempfile.TemporaryDirectory() as directory:
-        ready = Path(directory) / 'ready.json'
-        process = subprocess.Popen([str(args.executable.resolve()), '--headless', '--no-browser', '--no-update-check', '--port', '0', '--ready-file', str(ready)])
+        root = Path(directory)
+        ready = root / 'ready.json'
+        # A deliberately invalid fixture prevents discovery of the user's League client.
+        (root / 'lockfile').write_text('fixture', encoding='ascii')
+        process = subprocess.Popen([str(Path(executable).resolve(strict=True)), '--headless', '--no-browser',
+                                    '--no-update-check', '--port', '0', '--ready-file', str(ready),
+                                    '--league-folder', str(root)])
         try:
             deadline = time.monotonic() + 45
             while not ready.is_file():
@@ -35,24 +37,38 @@ def main():
             headers = {'X-DraftLab-Session': token, 'Origin': LIVE_ORIGIN}
             for live_origin in LIVE_ORIGINS:
                 preflight = {'Origin': live_origin, 'Access-Control-Request-Method': 'GET', 'Access-Control-Request-Headers': 'x-draftlab-session'}
-                with urlopen(Request(origin + '/api/state', headers=preflight, method='OPTIONS')) as response:
+                with urlopen(Request(origin + '/api/state', headers=preflight, method='OPTIONS'), timeout=5) as response:
                     assert response.status == 204 and response.headers['Access-Control-Allow-Origin'] == live_origin
-                with urlopen(Request(origin + '/api/state', headers={**headers, 'Origin': live_origin})) as response:
+                with urlopen(Request(origin + '/api/state', headers={**headers, 'Origin': live_origin}), timeout=5) as response:
                     assert response.headers['Access-Control-Allow-Origin'] == live_origin
                     assert json.load(response)['companionVersion'] == VERSION
+            with urlopen(Request(origin + '/api/state?remember=1', headers=headers), timeout=5) as response:
+                key = json.load(response)['reconnectKey']
+            assert key != token
+            reconnect = {'X-DraftLab-Reconnect': key, 'Origin': LIVE_ORIGIN}
+            with urlopen(Request(origin + '/api/reconnect', headers=reconnect, method='POST'), timeout=5) as response:
+                session = json.load(response)
+            with urlopen(Request(origin + '/api/state', headers={**headers, 'X-DraftLab-Session': session['token']}), timeout=5) as response:
+                assert json.load(response)['bridgeProtocol'] == 1
             try:
-                urlopen(origin + '/api/state')
+                urlopen(origin + '/api/state', timeout=5)
                 raise AssertionError('Unauthenticated client state was exposed.')
             except HTTPError as error:
                 assert error.code == 403
-            with urlopen(Request(origin + '/api/quit', headers=headers, method='POST')) as response:
+            with urlopen(Request(origin + '/api/quit', headers=headers, method='POST'), timeout=5) as response:
                 assert json.load(response)['stopping']
             assert process.wait(timeout=15) == 0
-            print('Frozen executable smoke test passed: live-site launch, strict CORS, authenticated API, shutdown.')
+            print('Frozen executable smoke test passed: live-site launch, strict CORS, authenticated API, reconnect, shutdown.')
         finally:
             if process.poll() is None:
                 process.terminate()
                 process.wait(timeout=10)
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('executable', type=Path)
+    smoke(parser.parse_args().executable)
 
 
 if __name__ == '__main__':

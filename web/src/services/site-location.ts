@@ -5,3 +5,10 @@ export function isLiveSite(url: URL) {
       url.pathname === '/draft-lab/')
   );
 }
+
+export function canUseCompanion(url: URL) {
+  return (
+    isLiveSite(url) ||
+    (url.protocol === 'http:' && url.hostname === '127.0.0.1')
+  );
+}

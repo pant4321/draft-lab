@@ -165,9 +165,79 @@ class BridgeTests(unittest.TestCase):
         self.request('/api/quit', headers, 'POST').close()
         self.assertTrue(self.stop.wait(1))
 
+    def test_pairing_claim_is_one_time_and_session_is_bound_to_the_preview_origin(self):
+        from unittest.mock import patch
+        from companion.pairing import PendingPairings
+
+        origin, ticket = "http://127.0.0.1:8792", "a" * 64
+        pair_headers = {"Origin": origin, "X-DraftLab-Pairing": ticket}
+        with tempfile.TemporaryDirectory() as directory:
+            self.server.pairings = PendingPairings(directory)
+            with patch("companion.pairing.PAIRING_PORTS", (self.server.server_port,)):
+                with self.assertRaises(HTTPError) as missing:
+                    self.request("/api/pair", pair_headers, "POST")
+                self.assertEqual(missing.exception.code, 404)
+                self.server.pairings.offer(origin, (ticket,))
+                with self.assertRaises(HTTPError) as wrong_origin:
+                    self.request("/api/pair", {**pair_headers, "Origin": LIVE_ORIGIN}, "POST")
+                self.assertEqual(wrong_origin.exception.code, 404)
+                with self.request("/api/pair", pair_headers, "POST") as response:
+                    self.assertEqual(response.headers["Access-Control-Allow-Origin"], origin)
+                    session = json.load(response)
+                with self.assertRaises(HTTPError) as replay:
+                    self.request("/api/pair", pair_headers, "POST")
+                self.assertEqual(replay.exception.code, 404)
+                next_ticket = "b" * 64
+                self.server.pairings.offer(origin, (next_ticket,))
+                self.server.request_stop()
+                with self.assertRaises(HTTPError) as stopping:
+                    self.request("/api/pair", {**pair_headers, "X-DraftLab-Pairing": next_ticket}, "POST")
+                self.assertEqual(stopping.exception.code, 503)
+                self.assertTrue(self.server.pairings.claim(origin, self.server.server_port, next_ticket))
+        auth = {"Origin": origin, "X-DraftLab-Session": session["token"]}
+        with self.request("/api/state", auth) as response:
+            self.assertEqual(json.load(response)["bridgeProtocol"], 1)
+        for headers in ({**auth, "Origin": LIVE_ORIGIN},
+                        {**auth, "X-DraftLab-Session": self.server.session_token}):
+            with self.assertRaises(HTTPError) as rejected:
+                self.request("/api/state", headers)
+            self.assertEqual(rejected.exception.code, 403)
+
     def test_non_loopback_bind_is_rejected(self):
         with self.assertRaises(ValueError):
             BridgeServer(('0.0.0.0', 0), self.state, self.stop)
+
+    def test_reconnect_key_requires_authenticated_pairing_and_is_scoped_to_origin_and_process(self):
+        headers = {'Origin': LIVE_ORIGIN, 'X-DraftLab-Session': self.server.session_token}
+        with self.request('/api/state', headers) as response:
+            self.assertNotIn('reconnectKey', json.load(response))
+        with self.assertRaises(HTTPError) as unauthenticated:
+            self.request('/api/state?remember=1', {'Origin': LIVE_ORIGIN})
+        self.assertEqual(unauthenticated.exception.code, 403)
+
+        with self.request('/api/state?remember=1', headers) as response:
+            key = json.load(response)['reconnectKey']
+        self.assertNotEqual(key, self.server.session_token)
+        reconnect = {'Origin': LIVE_ORIGIN, 'X-DraftLab-Reconnect': key}
+        with self.request('/api/reconnect', reconnect, 'POST') as response:
+            self.assertEqual(response.headers['Access-Control-Allow-Origin'], LIVE_ORIGIN)
+            session = json.load(response)
+        with self.request('/api/state', {**headers, 'X-DraftLab-Session': session['token']}) as response:
+            self.assertEqual(json.load(response)['bridgeProtocol'], 1)
+
+        invalid = (("/api/reconnect", {**reconnect, 'Origin': 'https://draftedge.website'}, 'POST'),
+                   ("/api/reconnect", {**reconnect, 'X-DraftLab-Reconnect': self.server.session_token}, 'POST'),
+                   ("/api/quit", {**headers, 'X-DraftLab-Session': key}, 'POST'))
+        for path, credentials, method in invalid:
+            with self.assertRaises(HTTPError) as rejected:
+                self.request(path, credentials, method)
+            self.assertEqual(rejected.exception.code, 403)
+
+        self.request('/api/quit', headers, 'POST').close()
+        self.assertTrue(self.stop.wait(1))
+        with self.assertRaises(HTTPError) as stopped:
+            self.request('/api/reconnect', reconnect, 'POST')
+        self.assertEqual(stopped.exception.code, 403)
 
     def test_state_revision_changes_only_when_meaningful(self):
         self.state.publish("connected", "Ready", None)

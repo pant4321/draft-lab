@@ -43,7 +43,10 @@ function mergeRoster(selection: DatasetSelection, previous: Roster) {
   return roster;
 }
 
-export function useDraftLab(connect: CompanionConnector | null) {
+export function useDraftLab(
+  connect: CompanionConnector | null,
+  alreadyPaired = false,
+) {
   const [state, dispatch] = useReducer(
     draftReducer,
     undefined,
@@ -219,12 +222,12 @@ export function useDraftLab(connect: CompanionConnector | null) {
       });
     });
     companion.current = client;
-    void client.start();
+    void client.start(alreadyPaired);
     return () => {
       client.dispose();
       companion.current = null;
     };
-  }, [connect, initialized]);
+  }, [connect, initialized, alreadyPaired]);
 
   const {
     draft,

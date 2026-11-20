@@ -10,18 +10,20 @@ from pathlib import Path
 import secrets
 import sys
 import threading
+import time
 from urllib.parse import urlsplit, urlencode
 import webbrowser
 
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from companion.lcu import Poller
+from companion.pairing import LIVE_ORIGINS, PAIRING_PORTS, PendingPairings, allowed_origin
 from companion.updates import UpdateChecker
+from companion.windows_launch import WindowsActivation, parse_activation_args
 
-VERSION = "0.1.7"
+VERSION = "0.1.11"
 LIVE_SITE = "https://pant4321.github.io/draft-lab/"
 LIVE_ORIGIN = "https://pant4321.github.io"
-LIVE_ORIGINS = (LIVE_ORIGIN, "https://draftedge.website")
 BRIDGE_PROTOCOL = 1
 
 
@@ -50,12 +52,27 @@ class State:
 class BridgeServer(ThreadingHTTPServer):
     daemon_threads = True
 
-    def __init__(self, address, state, stop):
+    def __init__(self, address, state, stop, *, activation=None):
         if address[0] != "127.0.0.1":
             raise ValueError("The bridge must bind only to loopback.")
         super().__init__(address, BridgeHandler)
         self.state, self.stop = state, stop
+        self.activation = activation
+        self.lifecycle = threading.Lock()
         self.session_token = secrets.token_urlsafe(32)
+        self.pairings = PendingPairings(settings_path().parent / "pairing")
+        self.paired_tokens = {}
+        self.reconnect_keys = {}
+
+    def request_stop(self, acknowledge=None):
+        with self.lifecycle:
+            if self.activation is not None:
+                self.activation.mark_stopping()
+            try:
+                if acknowledge is not None:
+                    acknowledge()
+            finally:
+                self.stop.set()
 
     @property
     def origin(self):
@@ -76,28 +93,41 @@ class BridgeHandler(BaseHTTPRequestHandler):
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("X-Frame-Options", "DENY")
         origin = self.headers.get("Origin")
-        if self.host_allowed() and origin in LIVE_ORIGINS:
+        if self.host_allowed() and allowed_origin(origin):
             self.send_header("Access-Control-Allow-Origin", origin)
             self.send_header("Vary", "Origin")
         super().end_headers()
 
     def host_allowed(self):
         expected = urlsplit(self.server.origin).netloc
-        return self.headers.get("Host") == expected and self.headers.get("Origin", self.server.origin) in (self.server.origin, *LIVE_ORIGINS)
+        return (self.headers.get("Host") == expected
+                and allowed_origin(self.headers.get("Origin", self.server.origin)))
 
     def authorized(self):
-        return self.host_allowed() and secrets.compare_digest(self.headers.get("X-DraftLab-Session", "").encode(), self.server.session_token.encode())
+        if not self.host_allowed():
+            return False
+        origin = self.headers.get("Origin", self.server.origin)
+        token = self.headers.get("X-DraftLab-Session", "").encode()
+        if origin in (self.server.origin, *LIVE_ORIGINS) and secrets.compare_digest(token, self.server.session_token.encode()):
+            return True
+        expected = self.server.paired_tokens.get(origin)
+        return expected is not None and secrets.compare_digest(token, expected.encode())
 
     def do_OPTIONS(self):
         path = urlsplit(self.path).path
-        expected = {"/api/state": "GET", "/api/quit": "POST"}.get(path)
+        routes = {"/api/state": ("GET", "X-DraftLab-Session"),
+                  "/api/quit": ("POST", "X-DraftLab-Session"),
+                  "/api/pair": ("POST", "X-DraftLab-Pairing"),
+                  "/api/reconnect": ("POST", "X-DraftLab-Reconnect")}
+        expected, header = routes.get(path, ("", ""))
         headers = {item.strip().lower() for item in self.headers.get("Access-Control-Request-Headers", "").split(",") if item.strip()}
-        if not self.host_allowed() or self.headers.get("Origin") not in LIVE_ORIGINS or not expected or self.headers.get("Access-Control-Request-Method") != expected or headers != {"x-draftlab-session"}:
+        if (not self.host_allowed() or not allowed_origin(self.headers.get("Origin")) or not expected
+                or self.headers.get("Access-Control-Request-Method") != expected or headers != {header.lower()}):
             self.send_error(403)
             return
         self.send_response(204)
         self.send_header("Access-Control-Allow-Methods", expected)
-        self.send_header("Access-Control-Allow-Headers", "X-DraftLab-Session")
+        self.send_header("Access-Control-Allow-Headers", header)
         self.send_header("Access-Control-Max-Age", "600")
         self.send_header("Content-Length", "0")
         self.end_headers()
@@ -114,27 +144,57 @@ class BridgeHandler(BaseHTTPRequestHandler):
         if not self.host_allowed():
             self.send_error(403)
             return
-        path = urlsplit(self.path).path
-        if path == "/api/state":
+        url = urlsplit(self.path)
+        if url.path == "/api/state":
             if not self.authorized():
                 self.send_json({"error": "Local companion session required."}, 403)
             else:
-                self.send_json(self.server.state.read())
-            return
-        if path.startswith("/api/"):
-            self.send_error(404)
+                state = self.server.state.read()
+                origin = self.headers.get("Origin")
+                # An authenticated browser can request a separate, process-lifetime key.
+                if url.query == "remember=1" and allowed_origin(origin) and not self.server.stop.is_set():
+                    state["reconnectKey"] = self.server.reconnect_keys.setdefault(origin, secrets.token_urlsafe(32))
+                self.send_json(state)
             return
         self.send_error(404)
 
     def do_POST(self):
+        path = urlsplit(self.path).path
+        if path == "/api/pair":
+            origin = self.headers.get("Origin")
+            if not self.host_allowed() or not allowed_origin(origin):
+                self.send_error(403)
+                return
+            ticket = self.headers.get("X-DraftLab-Pairing", "")
+            with self.server.lifecycle:
+                if self.server.stop.is_set():
+                    self.send_error(503)
+                    return
+                if not self.server.pairings.claim(origin, self.server.server_port, ticket):
+                    self.send_error(404)
+                    return
+                token = self.server.paired_tokens.setdefault(origin, secrets.token_urlsafe(32))
+            self.send_json({"token": token, "port": self.server.server_port})
+            return
+        if path == "/api/reconnect":
+            origin = self.headers.get("Origin")
+            key = self.headers.get("X-DraftLab-Reconnect", "").encode()
+            with self.server.lifecycle:
+                expected = self.server.reconnect_keys.get(origin)
+                if (not self.host_allowed() or self.server.stop.is_set() or expected is None
+                        or not secrets.compare_digest(key, expected.encode())):
+                    self.send_json({"error": "Companion pairing required."}, 403)
+                    return
+                token = self.server.paired_tokens.setdefault(origin, secrets.token_urlsafe(32))
+            self.send_json({"token": token, "port": self.server.server_port})
+            return
         if not self.authorized():
             self.send_json({"error": "Local companion session required."}, 403)
             return
-        if urlsplit(self.path).path != "/api/quit":
+        if path != "/api/quit":
             self.send_error(404)
             return
-        self.send_json({"stopping": True})
-        self.server.stop.set()
+        self.server.request_stop(lambda: self.send_json({"stopping": True}))
 
 
 def resource_root():
@@ -153,7 +213,7 @@ def read_settings():
         return {}
 
 
-def launcher(server, poller, stop, updates, title="Draft Lab Companion"):
+def launcher(server, poller, stop, updates, title="DraftEdge Companion", *, activation=None):
     import tkinter as tk
     from tkinter import filedialog, ttk
     window = tk.Tk()
@@ -164,7 +224,7 @@ def launcher(server, poller, stop, updates, title="Draft Lab Companion"):
     icon = resource_root() / "companion/assets/draftlab.ico"
     if icon.is_file():
         window.iconbitmap(str(icon))
-    tk.Label(window, text="DRAFT LAB", bg="#101719", fg="#b2e7c3", font=("Segoe UI", 19, "bold")).pack(pady=(22, 8))
+    tk.Label(window, text="DRAFTEDGE", bg="#101719", fg="#b2e7c3", font=("Segoe UI", 19, "bold")).pack(pady=(22, 8))
     message = tk.StringVar(value="Starting companion")
     tk.Label(window, textvariable=message, bg="#101719", fg="#e5efeb", font=("Segoe UI", 12)).pack(pady=7)
     tk.Label(window, text="Leave this open while drafting.", bg="#101719", fg="#91a6a5", font=("Segoe UI", 10)).pack(pady=4)
@@ -180,9 +240,9 @@ def launcher(server, poller, stop, updates, title="Draft Lab Companion"):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(json.dumps({"leagueFolder": folder}), encoding="utf-8")
 
-    ttk.Button(buttons, text="Open Draft Lab", command=lambda: webbrowser.open(server.launch_url)).pack(side="left", padx=5)
+    ttk.Button(buttons, text="Open DraftEdge", command=lambda: webbrowser.open_new_tab(server.launch_url)).pack(side="left", padx=5)
     ttk.Button(buttons, text="League folder…", command=choose_folder).pack(side="left", padx=5)
-    ttk.Button(buttons, text="Quit", command=stop.set).pack(side="left", padx=5)
+    ttk.Button(buttons, text="Quit", command=server.request_stop).pack(side="left", padx=5)
     update_row = tk.Frame(window, bg="#101719")
     update_row.pack(fill="x", padx=24, pady=(0, 12))
     installed_version = updates.current_version
@@ -190,13 +250,16 @@ def launcher(server, poller, stop, updates, title="Draft Lab Companion"):
     tk.Label(update_row, textvariable=update_message, bg="#101719", fg="#91a6a5", font=("Segoe UI", 9)).pack(side="left")
     update_button = ttk.Button(update_row)
     last_update = None
-    window.protocol("WM_DELETE_WINDOW", stop.set)
+    window.protocol("WM_DELETE_WINDOW", server.request_stop)
 
     def refresh():
         nonlocal last_update
         if stop.is_set():
             window.destroy()
             return
+        if activation is not None and activation.requested():
+            window.deiconify()
+            window.lift()
         value = server.state.read()
         message.set(value["message"])
         update = value["update"]
@@ -222,37 +285,62 @@ def launcher(server, poller, stop, updates, title="Draft Lab Companion"):
 
 
 def main(argv=None):
+    try:
+        argv, pairing = parse_activation_args(sys.argv[1:] if argv is None else argv)
+    except ValueError:
+        return 2
     parser = argparse.ArgumentParser(description="Draft Lab local League companion")
-    parser.add_argument("--port", type=int, default=8766)
+    parser.add_argument("--port", type=int, default=PAIRING_PORTS[0])
     parser.add_argument("--league-folder", type=Path)
     parser.add_argument("--headless", action="store_true", help="Run without the launcher window, for integration tests.")
-    parser.add_argument("--no-browser", action="store_true")
+    parser.add_argument("--no-browser", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--no-update-check", action="store_true", help="Skip the public GitHub update check, for offline tests.")
     parser.add_argument("--ready-file", type=Path, help="Write local startup info for integration tests.")
     parser.add_argument("--ca-file", type=Path, help="Alternate local client CA for integration tests.")
     args = parser.parse_args(argv)
-    mutex = None
+    if pairing is not None:
+        PendingPairings(settings_path().parent / "pairing").offer(*pairing)
     if os.name == "nt" and not args.headless:
-        ctypes.windll.kernel32.CreateMutexW.restype = ctypes.c_void_p
-        ctypes.windll.kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
-        mutex = ctypes.windll.kernel32.CreateMutexW(None, False, "Local\\DraftLabCompanion")
-        if ctypes.windll.kernel32.GetLastError() == 183:
-            ctypes.windll.user32.MessageBoxW(None, "Draft Lab is already running. Use Open Draft Lab in its launcher window.", "Draft Lab", 0)
-            ctypes.windll.kernel32.CloseHandle(mutex)
-            return 0
+        deadline = time.monotonic() + 5
+        while True:
+            with WindowsActivation() as activation:
+                if activation.primary:
+                    return run(args, activation)
+                if activation.can_forward() and (pairing is not None or activation.notify()):
+                    return 0
+            # Drop our handle between attempts so the retiring instance can release the mutex.
+            if time.monotonic() >= deadline:
+                if pairing is None:
+                    ctypes.windll.user32.MessageBoxW(
+                        None, "Close the running companion before reopening DraftEdge Companion.",
+                        "DraftEdge Companion", 0)
+                return 1
+            time.sleep(.05)
+    return run(args)
+
+
+def run(args, activation=None):
     root = resource_root()
     stop, state = threading.Event(), State()
-    try:
+    ports = PAIRING_PORTS if args.port == PAIRING_PORTS[0] else (args.port,)
+    for port in (*ports, 0):
         try:
-            server = BridgeServer(("127.0.0.1", args.port), state, stop)
+            server = BridgeServer(("127.0.0.1", port), state, stop, activation=activation)
+            break
         except OSError:
-            server = BridgeServer(("127.0.0.1", 0), state, stop)
+            if port == 0:
+                raise
+    threads = []
+    serving = None
+    try:
         preferred = args.league_folder or read_settings().get("leagueFolder")
         poller = Poller(state, stop, args.ca_file or root / "companion/assets/riotgames.pem",
                         Path(preferred) if preferred else None)
-        threads = [threading.Thread(target=server.serve_forever, daemon=True), threading.Thread(target=poller.run, daemon=True)]
-        for thread in threads:
-            thread.start()
+        serving = threading.Thread(target=server.serve_forever, daemon=True)
+        serving.start()
+        polling = threading.Thread(target=poller.run, daemon=True)
+        polling.start()
+        threads.append(polling)
         updates = UpdateChecker(state, stop, VERSION)
         if args.no_update_check:
             state.publish_update({"status": "disabled"})
@@ -262,23 +350,21 @@ def main(argv=None):
                 threads.append(worker)
         if args.ready_file:
             args.ready_file.write_text(json.dumps({"url": server.launch_url, "pid": os.getpid()}), encoding="utf-8")
-        if not args.no_browser:
-            webbrowser.open(server.launch_url)
-        try:
-            if args.headless:
-                stop.wait()
-            else:
-                launcher(server, poller, stop, updates)
-        finally:
-            stop.set()
-            server.shutdown()
-            server.server_close()
-            for thread in threads:
-                thread.join(timeout=6)
+        if args.headless:
+            stop.wait()
+        else:
+            launcher(server, poller, stop, updates, activation=activation)
         return 0
     finally:
-        if mutex:
-            ctypes.windll.kernel32.CloseHandle(mutex)
+        server.request_stop()
+        if serving is not None and serving.is_alive():
+            server.shutdown()
+            serving.join(timeout=6)
+        server.server_close()
+        if activation is not None:
+            activation.close()
+        for thread in threads:
+            thread.join(timeout=6)
 
 
 if __name__ == "__main__":

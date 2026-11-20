@@ -1,8 +1,12 @@
 import { isChampionId, isRecord, isRole } from '../domain/types';
 import type { ClientPick, ClientSnapshot } from '../domain/types';
 import {
+  forgetCompanionReconnect,
   forgetCompanionSession,
   loopbackPermission,
+  reconnectCompanion,
+  rememberCompanionReconnect,
+  rememberCompanionSession,
 } from './companion-session';
 import type { CompanionSession } from './companion-session';
 
@@ -15,8 +19,11 @@ type BridgeState = {
 type Control =
   | 'Connect'
   | 'Connecting'
+  | 'Waiting'
+  | 'Ready'
   | 'Live'
   | 'Paused'
+  | 'Unsupported'
   | 'Blocked'
   | 'Offline'
   | 'Expired'
@@ -27,12 +34,12 @@ export type CompanionState = {
   control: Control;
   message: string;
   progress: string;
+  quitError: string;
   connected: boolean;
   paused: boolean;
   syncing: boolean;
   busy: boolean;
   prompt: boolean;
-  showConnect: boolean;
 };
 export type CompanionClient = ReturnType<typeof createCompanionClient>;
 export type CompanionConnector = (
@@ -44,13 +51,28 @@ export const initialCompanionState: CompanionState = {
   control: 'Connect',
   message: promptMessage,
   progress: '',
+  quitError: '',
   connected: false,
   paused: false,
   syncing: false,
   busy: false,
   prompt: false,
-  showConnect: true,
 };
+
+function leagueControl(bridge: BridgeState | null): Control {
+  switch (bridge?.status) {
+    case 'champ_select':
+      return 'Live';
+    case 'connected':
+      return 'Ready';
+    case 'unsupported_draft':
+      return 'Unsupported';
+    case 'connection_error':
+      return 'Error';
+    default:
+      return 'Waiting';
+  }
+}
 
 function readPicks(value: unknown): ClientPick[] {
   return Array.isArray(value)
@@ -100,8 +122,10 @@ export function createCompanionClient(
 ) {
   let state = { ...initialCompanionState };
   let bridge: BridgeState | null = null;
+  let activeSession = session;
   let stopped = false;
   let expired = false;
+  let triedRemembering = false;
   let permission: PermissionStatus | null = null;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let pollRequest: AbortController | null = null;
@@ -133,12 +157,14 @@ export function createCompanionClient(
       mode: 'cors',
       credentials: 'omit',
       cache: 'no-store',
+      redirect: 'error',
       referrerPolicy: 'no-referrer',
       targetAddressSpace: 'loopback',
       signal: AbortSignal.any([controller.signal, AbortSignal.timeout(10000)]),
-      headers: { 'X-DraftLab-Session': session.token },
+      headers: { 'X-DraftLab-Session': activeSession.token },
     } satisfies RequestInit & { targetAddressSpace: string };
-    return environment.fetch(session.origin + path, init);
+    const query = path === '/api/state' && !triedRemembering ? '?remember=1' : '';
+    return environment.fetch(activeSession.origin + path + query, init);
   }
 
   async function poll() {
@@ -146,30 +172,48 @@ export function createCompanionClient(
     stopTimer();
     const controller = new AbortController();
     pollRequest = controller;
-    publish({
-      busy: true,
-      ...(state.connected ? {} : { control: 'Connecting' }),
-    });
+    if (!state.connected && state.control !== 'Offline') {
+      publish({
+        busy: true,
+        control: 'Connecting',
+        message: 'Connecting to the companion…',
+      });
+    }
     try {
-      const response = await request('/api/state', controller);
+      let response = await request('/api/state', controller).catch(() => null);
       if (controller.signal.aborted || stopped) return;
-      if (response.status === 403) {
+      if (!response || response.status === 403) {
+        const replacement = await reconnectCompanion(controller.signal, environment);
+        if (controller.signal.aborted || stopped) return;
+        if (replacement) {
+          activeSession = rememberCompanionSession(replacement, environment);
+          triedRemembering = false;
+          bridge = null;
+          response = await request('/api/state', controller);
+        }
+      }
+      if (controller.signal.aborted || stopped) return;
+      if (response?.status === 403) {
         expired = true;
         forgetCompanionSession(environment);
         throw Error('session');
       }
-      if (!response.ok) throw Error('connection');
-      const next = readState(await response.json());
+      if (!response?.ok) throw Error('connection');
+      const value: unknown = await response.json();
+      const next = readState(value);
       if (controller.signal.aborted || stopped) return;
+      if (!triedRemembering && isRecord(value)) {
+        rememberCompanionReconnect(value.reconnectKey, activeSession.port, environment);
+        triedRemembering = true;
+      }
       const changed = !state.connected || next.revision !== bridge?.revision;
       bridge = next;
       publish(
         {
           connected: true,
-          control: state.paused ? 'Paused' : 'Live',
+          control: state.paused ? 'Paused' : leagueControl(next),
           message: state.paused ? 'Sync paused' : next.message,
           prompt: false,
-          showConnect: false,
           progress: '',
         },
         changed,
@@ -190,24 +234,24 @@ export function createCompanionClient(
               : 'Offline';
       const message =
         control === 'Expired'
-          ? 'Companion session expired. Open Draft Lab from its launcher again.'
+          ? 'This session expired. Reconnect to start a new session.'
           : control === 'Update'
             ? 'Update the companion to connect to this website.'
             : control === 'Blocked'
               ? 'Allow local companion access in your browser’s site settings, then reconnect.'
-              : 'Companion unavailable. Keep it running and allow local access when your browser asks.';
+              : 'The companion is unreachable. Reconnect to open it again.';
       publish({
         connected: false,
         control,
         message,
-        progress: message,
-        showConnect: true,
+        progress: state.prompt ? message : '',
+        quitError: '',
       });
       if (wasConnected && control === 'Offline')
         timer = environment.setTimeout(poll, 3000);
     } finally {
       pollRequest = null;
-      if (!stopped && !quitRequest) publish({ busy: false });
+      if (!stopped && !quitRequest && state.busy) publish({ busy: false });
       // A grant can arrive while the aborted request is still unwinding.
       if (
         controller.signal.aborted &&
@@ -231,9 +275,8 @@ export function createCompanionClient(
     publish({
       connected: false,
       control: denied ? 'Blocked' : 'Connect',
-      prompt: true,
-      showConnect: true,
       progress: '',
+      quitError: '',
       message: denied
         ? 'Allow local companion access in your browser’s site settings, then reconnect.'
         : promptMessage,
@@ -245,7 +288,7 @@ export function createCompanionClient(
     publish(
       {
         paused,
-        control: paused ? 'Paused' : 'Live',
+        control: paused ? 'Paused' : leagueControl(bridge),
         message: paused
           ? 'Sync paused'
           : (bridge?.message ?? 'Connecting to League…'),
@@ -255,12 +298,28 @@ export function createCompanionClient(
   }
 
   return {
-    async start() {
+    async start(alreadyPaired = false) {
       const status = await loopbackPermission(environment.navigator);
       if (stopped) return;
       permission = status;
       permission?.addEventListener('change', permissionChanged);
-      if (!pollRequest && !state.connected) permissionChanged();
+      if (!pollRequest && !state.connected) {
+        if (
+          (alreadyPaired || session.restored === 'preview') &&
+          permission?.state !== 'denied'
+        ) {
+          void poll();
+        } else {
+          permissionChanged();
+          if (
+            !alreadyPaired &&
+            !session.restored &&
+            permission?.state !== 'granted'
+          ) {
+            publish({ prompt: true });
+          }
+        }
+      }
     },
     open() {
       if (stopped || expired) return;
@@ -289,7 +348,7 @@ export function createCompanionClient(
       quitRequest = controller;
       stopTimer();
       pollRequest?.abort();
-      publish({ busy: true });
+      publish({ busy: true, quitError: '' });
       try {
         const response = await request('/api/quit', controller);
         if (!response.ok) throw Error('quit');
@@ -297,10 +356,11 @@ export function createCompanionClient(
         stopped = true;
         permission?.removeEventListener('change', permissionChanged);
         forgetCompanionSession(environment);
+        forgetCompanionReconnect(activeSession.port, environment);
         bridge = null;
         publish({
           connected: false,
-          showConnect: false,
+          paused: false,
           prompt: false,
           busy: false,
           control: 'Closed',
@@ -310,8 +370,8 @@ export function createCompanionClient(
         if (!stopped) {
           publish({
             busy: false,
-            control: 'Error',
-            message: 'Could not close the companion. Use Quit in its launcher.',
+            quitError:
+              'Could not close the companion. Try again here or use Quit in the app.',
           });
           timer = environment.setTimeout(poll, 750);
         }

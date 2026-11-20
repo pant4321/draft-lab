@@ -2,7 +2,7 @@
 
 A League of Legends draft assistant that ranks champions by synergy with your team and matchups against the enemy.
 
-[Open DraftEdge](https://pant4321.github.io/draft-lab/) · [Download Windows companion](https://github.com/pant4321/draft-lab/releases/latest/download/DraftLab.exe)
+[Open DraftEdge](https://pant4321.github.io/draft-lab/) · [Download Windows companion](https://github.com/pant4321/draft-lab/releases)
 
 ## Use it
 
@@ -14,7 +14,7 @@ A League of Legends draft assistant that ranks champions by synergy with your te
 
 Drag champions between roles to correct assignments. Dropping onto an occupied slot swaps the two picks. With **Auto guess roles** enabled, **Pinned** marks manual assignments. Use **Clear role pins** to let DraftEdge guess those roles again. Drafts, pools, and settings save in your browser.
 
-For automatic imports, run the Windows companion and leave it open with League. It opens the website; choose **Connect to League** and allow local access when prompted. The companion reads champion select without making picks or bans. [Setup, troubleshooting, and build notes](companion/README.md).
+For automatic imports, install DraftEdge Companion on Windows, then choose **Companion → Open Companion** on the site. Allow the app to open and grant local access if prompted. DraftEdge connects in the tab you started from. Leave the companion open with League while drafting. [Setup, troubleshooting, and build notes](companion/README.md)
 
 ## Scores and data
 
