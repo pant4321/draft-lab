@@ -16,6 +16,12 @@ Drag champions between roles to correct assignments. Dropping onto an occupied s
 
 For automatic imports, install DraftEdge Companion on Windows, then choose **Companion → Open Companion** on the site. Allow the app to open and grant local access if prompted. DraftEdge connects in the tab you started from. Leave the companion open with League while drafting. [Setup, troubleshooting, and build notes](companion/README.md)
 
+After League confirms your pick, DraftEdge opens a Ranked Solo/Duo build for your role and selected rank filter. It starts from the current patch and uses 14- or 30-day data when a choice needs more matchup coverage. A **Draft pick** replaces the usual choice when the evidence is strong enough. A **Draft option** appears under Alternatives. Expand either badge to see which opponents supported it and how many games went into the comparison. The matchup menu also lets you view one revealed opponent or all matchups. [Build recommendation scoring](docs/scoring.md#build-recommendations)
+
+Summoner Spells shows the recommended pair. Select **Alternatives** to compare other pairs by win rate and match count. On desktop, Ability Order and Summoner Spells stack beside Runes, with Starting Items, Boots, and legendary items below. Each item column shows the suggested choice first and its alternatives underneath. Win rate and match count sit beside the item icons. The row wraps on narrower screens. Hover over an item icon to see its name. The Boots column shows **No boots** when it ranks among the displayed choices. Legendary items show stats for their own purchase slots.
+
+The rune summary highlights a recorded page for the recommended keystone. Select **Show full rune trees** to compare primary and secondary rune stats, with runes highlighted when their pick rate exceeds 1% in that tree position. Close the overlay to return to the draft, or select **View build** under your locked champion to reopen it. Keep the current DraftEdge Companion running to load LoLalytics build stats. Riot Data Dragon supplies the artwork.
+
 ## Scores and data
 
 - **Draft edge:** sample-adjusted synergy and counter contributions for a candidate. Optional **Include base WR** adds overall win rate above 50%.

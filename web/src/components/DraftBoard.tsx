@@ -196,11 +196,13 @@ export function TeamBoard({
   lab,
   side,
   openPicker,
+  openBuild,
   drag,
 }: {
   lab: DraftLab;
   side: Side;
   openPicker: (target: PickerTarget) => void;
+  openBuild?: () => void;
   drag: ReturnType<typeof useBoardDrag>;
 }) {
   const {
@@ -308,6 +310,17 @@ export function TeamBoard({
                   }}
                 >
                   {content}
+                </button>
+              )}
+              {own && champion && clientOwnChampion !== null && openBuild && (
+                <button
+                  className="slot-build"
+                  type="button"
+                  aria-haspopup="dialog"
+                  aria-label={`View ${champion.name} build`}
+                  onClick={openBuild}
+                >
+                  View build
                 </button>
               )}
               {!own && champion && (

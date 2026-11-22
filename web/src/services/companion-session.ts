@@ -89,7 +89,13 @@ export async function reconnectCompanion(signal: AbortSignal, environment = glob
     }
     if (!response.ok) return null;
     const value: unknown = await response.json();
-    return validSession(value) && value.port === saved.port ? value : null;
+    if (!validSession(value) || value.port !== saved.port) return null;
+    return {
+      token: value.token,
+      port: value.port,
+      championBuildsVersion: 'championBuildsVersion' in value ? value.championBuildsVersion : null,
+      draftBuilds: 'draftBuilds' in value && value.draftBuilds === true,
+    };
   } catch {
     return null;
   }

@@ -11,10 +11,11 @@ import secrets
 import sys
 import threading
 import time
-from urllib.parse import urlsplit, urlencode
+from urllib.parse import parse_qs, urlsplit, urlencode
 
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from companion.champion_builds import build_query, get_build
 from companion.lcu import Poller
 from companion.pairing import LIVE_ORIGINS, PAIRING_PORTS, PendingPairings, allowed_origin
 from companion.preferences import read_settings, settings_path
@@ -22,7 +23,7 @@ from companion.startup import START_IN_TRAY
 from companion.updates import UpdateChecker
 from companion.windows_launch import WindowsActivation, parse_activation_args
 
-VERSION = "0.2.1"
+VERSION = "0.3.0"
 LIVE_SITE = "https://pant4321.github.io/draft-lab/"
 LIVE_ORIGIN = "https://pant4321.github.io"
 BRIDGE_PROTOCOL = 1
@@ -117,6 +118,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         path = urlsplit(self.path).path
         routes = {"/api/state": ("GET", "X-DraftLab-Session"),
+                  "/api/build": ("GET", "X-DraftLab-Session"),
                   "/api/quit": ("POST", "X-DraftLab-Session"),
                   "/api/pair": ("POST", "X-DraftLab-Pairing"),
                   "/api/reconnect": ("POST", "X-DraftLab-Reconnect")}
@@ -157,6 +159,22 @@ class BridgeHandler(BaseHTTPRequestHandler):
                     state["reconnectKey"] = self.server.reconnect_keys.setdefault(origin, secrets.token_urlsafe(32))
                 self.send_json(state)
             return
+        if url.path == "/api/build":
+            if not self.authorized():
+                self.send_json({"error": "Local companion session required."}, 403)
+                return
+            try:
+                query = build_query(parse_qs(url.query, strict_parsing=True, max_num_fields=7))
+            except ValueError:
+                self.send_json({"error": "Invalid champion build request."}, 400)
+                return
+            try:
+                build = get_build(*query)
+            except (OSError, ValueError, RecursionError):
+                self.send_json({"error": "LoLalytics build data is unavailable."}, 502)
+                return
+            self.send_json({"build": build})
+            return
         self.send_error(404)
 
     def do_POST(self):
@@ -187,7 +205,8 @@ class BridgeHandler(BaseHTTPRequestHandler):
                     self.send_json({"error": "Companion pairing required."}, 403)
                     return
                 token = self.server.paired_tokens.setdefault(origin, secrets.token_urlsafe(32))
-            self.send_json({"token": token, "port": self.server.server_port})
+            self.send_json({"token": token, "port": self.server.server_port,
+                            "championBuilds": True, "championBuildsVersion": 2, "draftBuilds": True})
             return
         if not self.authorized():
             self.send_json({"error": "Local companion session required."}, 403)

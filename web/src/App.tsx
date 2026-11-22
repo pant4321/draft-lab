@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Breakdown } from './components/Breakdown';
+import { ChampionBuild } from './components/ChampionBuild';
 import { FloatingSlot, TeamBoard, useBoardDrag } from './components/DraftBoard';
 import type { PickerTarget } from './components/DraftBoard';
 import {
@@ -13,6 +14,7 @@ import { useSpread } from './components/Spread';
 import { Explanations } from './components/StaticContent';
 import { CompanionDialog, Controls, Header } from './components/Toolbar';
 import type { CompanionDialogMode } from './components/Toolbar';
+import { ROLES } from './domain/types';
 import type { Role } from './domain/types';
 import { createCompanionClient } from './services/companion';
 import type { CompanionConnector } from './services/companion';
@@ -41,6 +43,13 @@ export function App({ connect }: { connect: CompanionConnector | null }) {
     openings: 0,
   });
   const [settings, setSettings] = useState(false);
+  const [dismissedBuild, setDismissedBuild] = useState<string | null>(null);
+  const lockedChampion = state.clientOwnChampion === null
+    ? undefined
+    : state.roster.get(state.clientOwnChampion);
+  const buildKey = lockedChampion
+    ? JSON.stringify([state.clientSession, lockedChampion.id])
+    : null;
   const [companionDialog, setCompanionDialog] =
     useState<CompanionDialogMode | null>(null);
   const reconnectAttempt = useRef<AbortController | null>(null);
@@ -113,6 +122,7 @@ export function App({ connect }: { connect: CompanionConnector | null }) {
             lab={lab}
             side="allies"
             openPicker={openPicker}
+            openBuild={() => setDismissedBuild(null)}
             drag={drag}
           />
           <Recommendations
@@ -177,6 +187,21 @@ export function App({ connect }: { connect: CompanionConnector | null }) {
       />
       {spread.popup}
       <FloatingSlot preview={drag.preview} roster={state.roster} />
+      {lockedChampion && (
+        <ChampionBuild
+          key={buildKey}
+          champion={lockedChampion}
+          role={state.draft.role}
+          rank={lab.catalog?.rank}
+          opponents={ROLES.flatMap((role) => {
+            const id = state.draft.enemies[role];
+            const champion = id === null ? undefined : state.roster.get(id);
+            return champion ? [{ id: champion.id, key: champion.key, name: champion.name, role }] : [];
+          })}
+          open={buildKey !== dismissedBuild}
+          close={() => setDismissedBuild(buildKey)}
+        />
+      )}
     </>
   );
 }

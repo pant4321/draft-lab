@@ -65,6 +65,8 @@ Client state is read through `GET /lol-gameflow/v1/gameflow-phase` and `GET /lol
 
 An authenticated tab can request a reconnect key with `GET /api/state?remember=1`. `POST /api/reconnect` exchanges that key for a tab session on the same origin. The bridge holds reconnect keys in memory until it quits.
 
+The build overlay opens in the draft tab after League confirms your pick. The authenticated `GET /api/build` route looks up public LoLalytics Ranked Solo/Duo statistics for the selected champion, role, and rank filter. It checks the current patch, 14 days, and 30 days in order for each choice. For draft recommendations, it uses the general sample and up to five revealed champion and role pairs within the selected window. Unavailable matchups leave the general data and other matchup samples usable. The matchup picker can also request a single opponent. Riot Data Dragon supplies the patch version, current options, and artwork. CommunityDragon supplies item purchase limits extracted from League's game data.
+
 The live site's Google Analytics stream measures page visits. Draft state, searches, pools, League identities, and companion credentials are not sent as analytics events. Tag configuration and sanitization are in [analytics.ts](../web/src/services/analytics.ts). See the [privacy notice](https://pant4321.github.io/draft-lab/privacy.html).
 
 This first release targets standard role-based Summoner's Rift drafts. Other champion-select modes and unusual client schema changes need separate validation. The local League Client API is not officially supported for third-party apps, and Riot asks developers to register products and their API usage. See [Riot's current guidance](https://developer.riotgames.com/docs/lol#league-client-api).

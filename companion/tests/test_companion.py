@@ -8,6 +8,7 @@ import subprocess
 import tempfile
 import threading
 import unittest
+from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
@@ -103,6 +104,35 @@ class BridgeTests(unittest.TestCase):
 
     def request(self, path, headers=None, method="GET"):
         return urlopen(Request(self.server.origin + path, headers=headers or {}, method=method), timeout=2)
+
+    def test_build_route_requires_a_session_and_accepts_only_build_parameters(self):
+        path = "/api/build?slug=ahri&id=103&role=middle&tier=emerald_plus"
+        auth = {"X-DraftLab-Session": self.server.session_token, "Origin": LIVE_ORIGIN}
+        with patch("companion.app.get_build", return_value={"games": 20}) as build:
+            with self.assertRaises(HTTPError) as missing_auth:
+                self.request(path, {"Origin": LIVE_ORIGIN})
+            self.assertEqual(missing_auth.exception.code, 403)
+            with self.assertRaises(HTTPError) as invalid:
+                self.request(path + "&url=example.com", auth)
+            self.assertEqual(invalid.exception.code, 400)
+            with self.assertRaises(HTTPError) as partial_opponent:
+                self.request(path + "&opponent=yone", auth)
+            self.assertEqual(partial_opponent.exception.code, 400)
+            build.assert_not_called()
+            with self.request(path, auth) as response:
+                self.assertEqual(json.load(response), {"build": {"games": 20}})
+                self.assertEqual(response.headers["Access-Control-Allow-Origin"], LIVE_ORIGIN)
+            build.assert_called_once_with("ahri", 103, "middle", "emerald_plus")
+            with self.request(path + "&opponent=yone&opponentId=777&opponentRole=top", auth) as response:
+                self.assertEqual(response.status, 200)
+            build.assert_called_with("ahri", 103, "middle", "emerald_plus", ("yone", 777, "top"))
+            with self.request(path + "&draft=ornn:516:top,yone:777:middle", auth) as response:
+                self.assertEqual(response.status, 200)
+            build.assert_called_with("ahri", 103, "middle", "emerald_plus", None,
+                                     (("ornn", 516, "top"), ("yone", 777, "middle")))
+            with self.assertRaises(HTTPError) as duplicate_role:
+                self.request(path + "&draft=ornn:516:top,yone:777:top", auth)
+            self.assertEqual(duplicate_role.exception.code, 400)
 
     def test_auth_host_origin_and_no_static_file_serving(self):
         for path in ("/", "/draft.mjs", "/data/draft/catalog.json", "/../companion/app.py"):
@@ -222,6 +252,7 @@ class BridgeTests(unittest.TestCase):
         with self.request('/api/reconnect', reconnect, 'POST') as response:
             self.assertEqual(response.headers['Access-Control-Allow-Origin'], LIVE_ORIGIN)
             session = json.load(response)
+            self.assertIs(session['championBuilds'], True)
         with self.request('/api/state', {**headers, 'X-DraftLab-Session': session['token']}) as response:
             self.assertEqual(json.load(response)['bridgeProtocol'], 1)
 

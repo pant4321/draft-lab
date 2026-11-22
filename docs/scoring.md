@@ -78,3 +78,15 @@ Exact implementations are in [draft-math.ts](../web/src/domain/draft-math.ts), [
 ## Limits
 
 These additive, observational scores rank draft fit. Pair samples overlap and effects can interact, so totals are neither causal gains nor calibrated win probabilities. Shrinkage, coverage thresholds, and the optional base term need held-out validation before making match-odds claims. Blindability models ordinary opponent pick shares, not an opponent deliberately adapting to your pick.
+
+## Build recommendations
+
+Each build choice uses the shortest comparable LoLalytics Ranked Solo/Duo window for the champion, role, and selected rank. Try the current patch, then 14 days and 30 days. Early choices prefer direct lane coverage when the lane matchup is known. The all-matchups sample and its opponent comparisons share a window.
+
+The most-picked eligible option is the usual choice. Each alternative starts from its general pick share and receives fixed role-weighted shifts against the usual choice. Opponent samples are compared against the rest of the same cohort, with shrinkage toward that remainder. A normalized modeled gain of at least 0.4 percentage points and evidence of increased own share and relative odds are required for a badge.
+
+At least 200 recorded choices and 25 purchases of the exact candidate are required to enter the evidence check. Both badges use the same multiple-comparison budget. A **Draft pick** must outrank the usual choice and have at least one supporting matchup with 100 exact purchases and 300 total recorded choices at that decision. A qualifying **Draft option** appears under Alternatives. Its opponent rows hide win rates below 100 exact purchases. If every supporting matchup falls below 100, the badge shows **Low sample** and the option row hides its win rate.
+
+Boot choices include basic boots, upgrades, and an explicit no-boots sample where reported. The no-boots choice follows the same ranking and evidence rules and occupies no purchase slot. All legendary columns use their own purchase statistics regardless of boot choice. Later slots exclude featured purchases and apply available current-patch item group restrictions. Ability order and minor runes use observed general skill orders and recorded rune pages.
+
+See the [build recommendation approach](build-recommendation-approach.md) for the equations, role weights, and interpretation.
