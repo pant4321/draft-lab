@@ -63,3 +63,30 @@ test('cancelling a drag flushes the queued snapshot, and pausing discards it', (
   expect(Object.values(state.draft.enemies)).not.toContain(3);
   expect(state.queuedSnapshot).toBeNull();
 });
+
+test('reported match roles replace conflicting draft corrections and keep same-session exclusions', () => {
+  let state = draftReducer(initialDraftState(), { type: 'roster', roster });
+  state = apply(state, { ...snapshot('one', [1, 2]), bans: [3] });
+  const previousTop = state.draft.enemies.top;
+  const previousMid = state.draft.enemies.middle;
+  state = draftReducer(state, { type: 'ignore', id: previousTop });
+  state = { ...state, clientRoleOverride: 'jungle', roleOverrides: {
+    allies: {}, enemies: { [previousTop]: 'top' },
+  } };
+
+  const match = {
+    phase: 'game', sessionId: 'one', player: { key: '4', role: 'top' }, allies: [],
+    enemies: [{ key: String(previousTop), role: 'middle' }, { key: String(previousMid), role: 'top' }],
+    bans: [3],
+  };
+  state = apply(state, match);
+  expect(state.draft).toMatchObject({
+    role: 'top', enemies: { top: previousMid, middle: previousTop }, bans: [3],
+  });
+  expect(state.clientOwnChampion).toBe(4);
+  expect(state.clientRoleOverride).toBeNull();
+  expect(state.roleOverrides.enemies).toEqual({});
+  expect(state.ignoredPicks).toEqual([previousTop]);
+  state = draftReducer(state, { type: 'ignore', id: previousMid });
+  expect(state.draft.enemies.middle).toBe(previousTop);
+});

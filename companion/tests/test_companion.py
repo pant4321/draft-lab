@@ -13,7 +13,7 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 from companion.app import BridgeServer, State, VERSION, LIVE_SITE, LIVE_ORIGIN, LIVE_ORIGINS
-from companion.lcu import Credentials, LeagueClient, Poller, normalize_session
+from companion.lcu import Credentials, LeagueClient, LiveGameClient, Poller, normalize_match, normalize_session
 
 
 def example_session():
@@ -27,6 +27,18 @@ def example_session():
                      {"actorCellId": 2, "championId": 103, "type": "pick", "completed": False},
                      {"actorCellId": 5, "championId": 64, "type": "pick", "completed": True}]],
         "bans": {"myTeamBans": [111, -1, 0], "theirTeamBans": [111, 58]}}
+
+
+def example_match_players():
+    positions = ("TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY")
+    teams = {"ORDER": ("Renekton", "LeeSin", "Orianna", "Caitlyn", "Xerath"),
+             "CHAOS": ("Gwen", "Shaco", "Ahri", "Ashe", "Nami")}
+    return [
+        {"team": team, "rawChampionName": f"game_character_displayname_{key}", "position": role,
+         "riotId": f"PRIVATE#{key}", "summonerName": f"PRIVATE-{key}", "puuid": "PRIVATE"}
+        for team, champions in teams.items()
+        for key, role in zip(champions, positions)
+    ]
 
 
 class ClientTests(unittest.TestCase):
@@ -47,6 +59,39 @@ class ClientTests(unittest.TestCase):
         value = normalize_session(raw)
         self.assertEqual(value["allies"][0]["id"], 222)
         self.assertIsNone(value["playerChampion"])
+
+    def test_match_roles_use_the_local_players_team_and_exclude_identities(self):
+        players = example_match_players()
+        value = normalize_match(players, "PRIVATE#Shaco")
+        self.assertEqual(value["player"], {"key": "shaco", "role": "jungle"})
+        self.assertEqual(value["allies"][-1], {"key": "nami", "role": "support"})
+        self.assertEqual(value["enemies"][1], {"key": "leesin", "role": "jungle"})
+        self.assertNotIn("PRIVATE", json.dumps(value))
+        self.assertEqual(normalize_match(players, "PRIVATE-Shaco"), value)
+        self.assertIsNone(normalize_match(players, "Unknown"))
+        players[0]["position"] = "NONE"
+        self.assertIsNone(normalize_match(players, "PRIVATE#Shaco"))
+        players[0]["position"] = "JUNGLE"
+        self.assertIsNone(normalize_match(players, "PRIVATE#Shaco"))
+
+    def test_match_api_uses_fixed_local_gets_and_skips_other_maps(self):
+        from io import BytesIO
+        cert = Path(__file__).parents[1] / "assets/riotgames.pem"
+        client = LiveGameClient(cert)
+        players = example_match_players()
+        players[0]["position"] = "NONE"
+        responses = [{"mapNumber": 11, "gameMode": "CLASSIC", "gameTime": 4}, players, "PRIVATE#Shaco",
+                     {"mapNumber": 11, "gameMode": "CLASSIC", "gameTime": 62}, players, "PRIVATE#Shaco",
+                     {"mapNumber": 12, "gameMode": "KIWI"}]
+        with patch.object(client.opener, "open", side_effect=[BytesIO(json.dumps(row).encode()) for row in responses]) as get:
+            self.assertEqual(client.read(), (None, False))
+            self.assertEqual(client.read(), (None, True))
+            self.assertEqual(client.read(), (None, True))
+        self.assertEqual(
+            [call.args[0] for call in get.call_args_list],
+            ["https://127.0.0.1:2999/liveclientdata/" + endpoint for endpoint in
+             ("gamestats", "playerlist", "activeplayername", "gamestats", "playerlist", "activeplayername", "gamestats")],
+        )
 
     def test_credentials_are_validated_and_redacted(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -321,6 +366,33 @@ class LocalClientIntegrationTests(unittest.TestCase):
                 self.assertEqual(first['status'], 'champ_select')
                 self.assertEqual(first['snapshot']['enemies'], [{'id': 64, 'role': None}])
                 self.assertNotIn('test-password', json.dumps(first))
+                match = normalize_match(example_match_players(), "PRIVATE#Shaco")
+                with patch("companion.lcu.LiveGameClient.read",
+                           side_effect=[OSError, (None, False), (match, False), (match, False)]) as live:
+                    phase[0] = 'GameStart'
+                    poller.tick()
+                    self.assertEqual(state.read()['status'], 'in_game')
+                    self.assertIsNone(state.read()['snapshot'])
+                    poller.tick()
+                    self.assertIsNone(state.read()['snapshot'])
+                    phase[0] = 'InProgress'
+                    poller.tick()
+                    started = state.read()
+                    self.assertEqual(started['snapshot']['sessionId'], first['snapshot']['sessionId'])
+                    self.assertEqual(started['snapshot']['bans'], first['snapshot']['bans'])
+                    self.assertEqual(started['snapshot']['enemies'][1], {'key': 'leesin', 'role': 'jungle'})
+                    phase[0] = 'Reconnect'
+                    poller.tick()
+                    self.assertEqual(live.call_count, 3)
+                    self.assertEqual(state.read(), started)
+                    phase[0] = 'EndOfGame'
+                    poller.tick()
+                    self.assertIsNone(state.read()['snapshot'])
+                    phase[0] = 'InProgress'
+                    poller.tick()
+                    joined = state.read()['snapshot']
+                    self.assertNotEqual(joined['sessionId'], started['snapshot']['sessionId'])
+                    self.assertEqual(joined['bans'], [])
                 phase[0] = 'Lobby'
                 poller.tick()
                 self.assertIsNone(state.read()['snapshot'])

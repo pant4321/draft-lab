@@ -1,4 +1,4 @@
-"""Read only the local League client's gameflow and champion-select session."""
+"""Read gameflow, champion select, and reported match roles from the local League clients."""
 from __future__ import annotations
 
 import base64
@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 import json
 import os
 from pathlib import Path
+import re
 import ssl
 import subprocess
 import time
@@ -14,6 +15,9 @@ from urllib.request import HTTPSHandler, HTTPRedirectHandler, ProxyHandler, Requ
 ROLES = {"top": "top", "jungle": "jungle", "middle": "middle", "mid": "middle",
          "bottom": "bottom", "bot": "bottom", "adc": "bottom", "utility": "support", "support": "support"}
 READ_PATHS = frozenset(("/lol-gameflow/v1/gameflow-phase", "/lol-champ-select/v1/session"))
+MATCH_PHASES = frozenset(("GameStart", "InProgress", "Reconnect"))
+MATCH_ROLES = frozenset(ROLES.values())
+CHAMPION_KEY = re.compile(r"game_character_displayname_([A-Za-z0-9]+)", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -38,14 +42,17 @@ class NoRedirects(HTTPRedirectHandler):
         return None
 
 
+def local_opener(certificate: Path):
+    context = ssl.create_default_context(cafile=str(certificate))
+    # Riot's certificates do not provide a loopback hostname SAN.
+    context.check_hostname = False
+    return build_opener(ProxyHandler({}), NoRedirects(), HTTPSHandler(context=context))
+
+
 class LeagueClient:
     def __init__(self, credentials: Credentials, certificate: Path):
         self.credentials = credentials
-        context = ssl.create_default_context(cafile=str(certificate))
-        # Riot's local certificate does not provide a loopback hostname SAN.
-        # Verify the certificate chain against Riot's bundled CA on fixed 127.0.0.1.
-        context.check_hostname = False
-        self.opener = build_opener(ProxyHandler({}), NoRedirects(), HTTPSHandler(context=context))
+        self.opener = local_opener(certificate)
 
     def get(self, path: str):
         if path not in READ_PATHS:
@@ -55,6 +62,28 @@ class LeagueClient:
                           headers={"Authorization": "Basic " + auth, "Accept": "application/json"}, method="GET")
         with self.opener.open(request, timeout=2) as response:
             return json.load(response)
+
+
+class LiveGameClient:
+    def __init__(self, certificate: Path):
+        self.opener = local_opener(certificate)
+
+    def read(self):
+        def get(resource):
+            url = f"https://127.0.0.1:2999/liveclientdata/{resource}"
+            with self.opener.open(url, timeout=2) as response:
+                return json.load(response)
+
+        stats = get("gamestats")
+        if not isinstance(stats, dict) or not stats.get("mapNumber") or not stats.get("gameMode"):
+            return None, False
+        if stats.get("mapNumber") != 11 or stats.get("gameMode") != "CLASSIC":
+            return None, True
+        match = normalize_match(get("playerlist"), get("activeplayername"))
+        # Give the game time to report positions. Some queues never assign them.
+        game_time = stats.get("gameTime")
+        unavailable = match is None and isinstance(game_time, (int, float)) and game_time >= 60
+        return match, unavailable
 
 
 def find_lockfile(preferred: Path | None = None, *, inspect_process=True) -> Path | None:
@@ -129,6 +158,39 @@ def normalize_session(session: dict) -> dict:
             "allies": allies[:4], "enemies": enemies[:5], "bans": bans}
 
 
+def normalize_match(players, active_name):
+    """Keep champion keys and roles only, after resolving the local player in memory."""
+    if not isinstance(players, list) or len(players) != 10 or not isinstance(active_name, str) or not active_name:
+        return None
+    teams = {"ORDER": [], "CHAOS": []}
+    keys = set()
+    player, player_team = None, None
+    for entry in players:
+        if not isinstance(entry, dict):
+            return None
+        team = str(entry.get("team"))
+        role = ROLES.get(str(entry.get("position", "")).lower())
+        champion = CHAMPION_KEY.fullmatch(str(entry.get("rawChampionName", "")))
+        if team not in teams or role is None or champion is None:
+            return None
+        key = champion[1].lower()
+        if key in keys:
+            return None
+        keys.add(key)
+        pick = {"key": key, "role": role}
+        teams[team].append(pick)
+        if active_name in (entry.get("riotId"), entry.get("summonerName")):
+            if player is not None:
+                return None
+            player, player_team = pick, team
+    if player is None or any({pick["role"] for pick in picks} != MATCH_ROLES for picks in teams.values()):
+        return None
+    enemy_team = "ORDER" if player_team == "CHAOS" else "CHAOS"
+    return {"phase": "game", "player": player,
+            "allies": [pick for pick in teams[player_team] if pick is not player],
+            "enemies": teams[enemy_team]}
+
+
 class Poller:
     def __init__(self, state, stop, certificate: Path, preferred=None, interval=1):
         self.state, self.stop, self.certificate = state, stop, certificate
@@ -136,9 +198,40 @@ class Poller:
         self.active_folder = preferred
         self.lockfile = None
         self.client = None
+        self.live_game = None
         self.next_search = 0
         self.session_number = 0
+        self.clear_session()
+
+    def clear_session(self):
         self.session_id = None
+        self.draft_bans = []
+        self.match_snapshot = None
+        self.match_unavailable = False
+
+    def ensure_session(self, pid):
+        if self.session_id is None:
+            self.session_number += 1
+            self.session_id = f"{pid}:{self.session_number}"
+
+    def publish_match(self, pid):
+        if self.match_snapshot is None and not self.match_unavailable:
+            try:
+                if self.live_game is None:
+                    self.live_game = LiveGameClient(self.certificate)
+                match, self.match_unavailable = self.live_game.read()
+                if match is not None:
+                    self.ensure_session(pid)
+                    self.match_snapshot = {**match, "sessionId": self.session_id, "bans": self.draft_bans}
+            except (OSError, ValueError):
+                # The game API starts separately from the League client.
+                pass
+        if self.match_unavailable:
+            self.state.publish("connected", "Match in progress", None)
+        elif self.match_snapshot is None:
+            self.state.publish("in_game", "Waiting for match roles", None)
+        else:
+            self.state.publish("in_game", "Match roles synced", self.match_snapshot)
 
     def tick(self):
         preferred = self.preferred
@@ -146,6 +239,7 @@ class Poller:
             self.active_folder = preferred
             self.lockfile = self.client = None
             self.next_search = 0
+            self.clear_session()
         if self.lockfile is None or not self.lockfile.is_file():
             self.lockfile = None
             if time.monotonic() >= self.next_search:
@@ -153,30 +247,34 @@ class Poller:
                 self.next_search = time.monotonic() + 5
             if self.lockfile is None:
                 self.client = None
+                self.clear_session()
                 self.state.publish("waiting_client", "Waiting for League", None)
                 return
         try:
             credentials = Credentials.read(self.lockfile)
             if self.client is None or self.client.credentials != credentials:
-                if self.client is not None and self.client.credentials.pid != credentials.pid:
-                    self.session_id = None
+                if self.session_id is not None and not self.session_id.startswith(f"{credentials.pid}:"):
+                    self.clear_session()
                 self.client = LeagueClient(credentials, self.certificate)
             phase = self.client.get("/lol-gameflow/v1/gameflow-phase")
-            if phase != "ChampSelect":
-                self.session_id = None
-                message = "Match in progress" if phase in ("InProgress", "GameStart", "Reconnect") else "Waiting for champion select"
-                self.state.publish("connected", message, None)
+            if phase in MATCH_PHASES:
+                self.publish_match(credentials.pid)
                 return
+            if phase != "ChampSelect":
+                self.clear_session()
+                self.state.publish("connected", "Waiting for champion select", None)
+                return
+            if self.match_snapshot is not None or self.match_unavailable:
+                self.clear_session()
             raw = self.client.get("/lol-champ-select/v1/session")
             if raw.get("allowRerolling") or raw.get("benchEnabled") or not any(
                     player.get("cellId") == raw.get("localPlayerCellId") for player in raw.get("myTeam", [])):
-                self.session_id = None
+                self.clear_session()
                 self.state.publish("unsupported_draft", "Role-based Summoner's Rift drafts only", None)
                 return
-            if self.session_id is None:
-                self.session_number += 1
-                self.session_id = f"{credentials.pid}:{self.session_number}"
+            self.ensure_session(credentials.pid)
             snapshot = normalize_session(raw)
+            self.draft_bans = snapshot["bans"]
             snapshot["sessionId"] = self.session_id
             self.state.publish("champ_select", "Champion select connected", snapshot)
         except ssl.SSLError:

@@ -31,15 +31,15 @@ Open **Contribution sampling ranges** under a pick's breakdown for approximate 9
 
 ## Team draft edge
 
-The team total includes the selected preview or your imported locked pick. It sums:
+Each team gets a total from its own perspective. Both totals account for the selected preview or your imported locked pick. Each sum includes:
 
-- Each unique allied synergy pair once: ten for a full team.
-- Every allied-versus-enemy matchup: 25 with both teams full.
-- Each ally's base strength once, when enabled.
+- Each unique teammate synergy pair once, for ten pairs on a full team.
+- Every matchup against the other team, for 25 matchups with both teams full.
+- Each teammate's base strength once, when enabled.
 
-A synergy pair averages the available directional sample-adjusted effects and uses the mean of its two role weights. A reverse record alone is sufficient. Counters use the opposing role's counter multiplier. Missing active data makes the total unavailable instead of presenting a partial sum as complete.
+A synergy pair averages the available directional sample-adjusted effects and uses the mean of its two board slot weights. A reverse record alone is sufficient. Counters use the opposing champion's board slot weight and the matchup record from the scoring champion's perspective. A total requires data for every matchup that counts for that team.
 
-An excluded champion contributes no counter or synergy terms to Team Draft Edge. Excluding an ally also omits their base strength.
+Excluding a champion removes their counters and synergy from both totals and removes their base strength from their team's total.
 
 **Team edge range** shows the low and high ends of the total team edge, accounting for how uncertain each matchup estimate is given the number of games played. Each end combines the corresponding bounds for all active matchups using the same sample adjustment, role weights, and directional averaging as the point score. Base strength stays fixed if enabled. The range is unavailable if there are no active matchups or any contributing record lacks a valid observed win rate. Matchup records can share games, so the range describes score sensitivity. The saved aggregates do not contain the covariances needed to estimate variance for the total.
 

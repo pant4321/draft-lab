@@ -252,7 +252,7 @@ class LauncherWindow(QWidget):
             self.render_update(update)
 
     def update_connection(self, status, message):
-        connected = status in {"connected", "champ_select", "unsupported_draft"}
+        connected = status in {"connected", "champ_select", "in_game", "unsupported_draft"}
         if connected:
             title, detail = "Connected to League", message
         elif status == "connection_error":

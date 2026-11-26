@@ -1,5 +1,88 @@
 import { expect, test } from '@playwright/test';
 
+for (const pauseBeforeUpdate of [false, true]) {
+  test(`match start corrects lane matchups ${pauseBeforeUpdate ? 'on resume' : 'automatically'}`, async ({ page, context }) => {
+    const token = 's'.repeat(43);
+    const headers = {
+      'access-control-allow-origin': 'http://127.0.0.1:8791',
+      'access-control-allow-methods': 'GET',
+      'access-control-allow-headers': 'X-DraftLab-Session',
+    };
+    const draft = {
+      sessionId: 'fixture', playerChampion: null, playerRole: 'jungle',
+      allies: [{ id: 516, role: 'top' }], enemies: [{ id: 64 }, { id: 58 }], bans: [111],
+    };
+    const match = {
+      phase: 'game', sessionId: draft.sessionId, player: { key: 'Shaco', role: 'jungle' },
+      allies: [
+        { key: 'ornn', role: 'top' }, { key: 'ahri', role: 'middle' },
+        { key: 'ashe', role: 'bottom' }, { key: 'nami', role: 'support' },
+      ],
+      enemies: [
+        { key: 'leesin', role: 'top' }, { key: 'renekton', role: 'jungle' },
+        { key: 'orianna', role: 'middle' }, { key: 'caitlyn', role: 'bottom' },
+        { key: 'xerath', role: 'support' },
+      ],
+      bans: draft.bans,
+    };
+    let revision = 1;
+    let servedRevision = 0;
+    await context.addInitScript(() => {
+      Object.defineProperty(navigator, 'permissions', {
+        value: {
+          query: async () => ({
+            state: 'granted',
+            addEventListener() {},
+            removeEventListener() {},
+          }),
+        },
+      });
+    });
+    await context.route('http://127.0.0.1:8767/api/**', async (route) => {
+      if (route.request().method() === 'OPTIONS') {
+        await route.fulfill({ status: 204, headers });
+        return;
+      }
+      if (!new URL(route.request().url()).pathname.endsWith('/state')) {
+        await route.fulfill({ status: 404, headers });
+        return;
+      }
+      const selecting = revision === 1;
+      servedRevision = revision;
+      await route.fulfill({
+        headers, json: {
+          bridgeProtocol: 1, revision, status: selecting ? 'champ_select' : 'in_game',
+          message: selecting ? 'Champion select' : 'Match in progress',
+          snapshot: selecting ? draft : revision === 2 ? null : match,
+        },
+      });
+    });
+    await page.goto('/#' + new URLSearchParams({ companion: token, port: '8767' }));
+    const top = page.getByRole('button', { name: 'Choose enemy Top' });
+    const jungle = page.getByRole('button', { name: 'Choose enemy Jungle' });
+    await expect(top).toContainText('Renekton');
+    await expect(jungle).toContainText('Lee Sin');
+
+    revision = 2;
+    await expect.poll(() => servedRevision).toBe(2);
+    await expect(top).toContainText('Renekton');
+    if (pauseBeforeUpdate) {
+      await page.getByText(/^League · /).click();
+      await page.getByRole('button', { name: 'Pause live sync' }).click();
+    }
+    revision = 3;
+    if (pauseBeforeUpdate) {
+      await expect.poll(() => servedRevision).toBe(3);
+      await expect(top).toContainText('Renekton');
+      await page.getByText(/^League · /).click();
+      await page.getByRole('button', { name: 'Resume live sync' }).click();
+    }
+    await page.getByRole('button', { name: 'Close build' }).click();
+    await expect(top).toContainText('Lee Sin');
+    await expect(jungle).toContainText('Renekton');
+  });
+}
+
 test('companion sync resumes across tabs and can relaunch after closing or quitting', async ({
   page,
   context,

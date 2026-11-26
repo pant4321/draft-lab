@@ -258,7 +258,7 @@ function CompanionControls({
         </div>
         <h2 id="connection-title">Connect your League client</h2>
         <p id="connection-description">
-          Fill your draft automatically from champion select.
+          Import champion select and update roles when the match starts.
         </p>
         <p id="connection-help">
           {recovery

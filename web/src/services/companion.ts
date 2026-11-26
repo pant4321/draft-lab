@@ -1,5 +1,5 @@
 import { isChampionId, isRecord, isRole } from '../domain/types';
-import type { ClientPick, ClientSnapshot } from '../domain/types';
+import type { ClientMatchPick, ClientPick, ClientSnapshot } from '../domain/types';
 import {
   forgetCompanionReconnect,
   forgetCompanionSession,
@@ -46,7 +46,7 @@ export type CompanionConnector = (
   onChange: (state: CompanionState, snapshot?: ClientSnapshot) => void,
 ) => CompanionClient;
 const promptMessage =
-  'Connect to allow this page to read champion select from your companion.';
+  'Connect to sync champion select and match roles from your companion.';
 export const initialCompanionState: CompanionState = {
   control: 'Connect',
   message: promptMessage,
@@ -62,6 +62,7 @@ export const initialCompanionState: CompanionState = {
 function leagueControl(bridge: BridgeState | null): Control {
   switch (bridge?.status) {
     case 'champ_select':
+    case 'in_game':
       return 'Live';
     case 'connected':
       return 'Ready';
@@ -84,6 +85,43 @@ function readPicks(value: unknown): ClientPick[] {
     : [];
 }
 
+function readMatchPick(value: unknown): ClientMatchPick | null {
+  return isRecord(value) &&
+    typeof value.key === 'string' &&
+    /^[a-z0-9]+$/i.test(value.key) &&
+    isRole(value.role)
+    ? { key: value.key.toLowerCase(), role: value.role }
+    : null;
+}
+
+function readSnapshot(raw: unknown): ClientSnapshot | null {
+  if (!isRecord(raw) || typeof raw.sessionId !== 'string') return null;
+  const sessionId = raw.sessionId;
+  const bans = Array.isArray(raw.bans) ? raw.bans.filter(isChampionId) : [];
+  if (raw.phase === 'game') {
+    const player = readMatchPick(raw.player);
+    if (!player || !Array.isArray(raw.allies) || !Array.isArray(raw.enemies)) return null;
+    const allies = raw.allies.map(readMatchPick);
+    const enemies = raw.enemies.map(readMatchPick);
+    if (
+      allies.length !== 4 ||
+      enemies.length !== 5 ||
+      !allies.every((pick) => pick !== null) ||
+      !enemies.every((pick) => pick !== null)
+    )
+      return null;
+    return { phase: 'game', sessionId, player, allies, enemies, bans };
+  }
+  return {
+    sessionId,
+    playerRole: isRole(raw.playerRole) ? raw.playerRole : null,
+    playerChampion: isChampionId(raw.playerChampion) ? raw.playerChampion : null,
+    allies: readPicks(raw.allies),
+    enemies: readPicks(raw.enemies),
+    bans,
+  };
+}
+
 function readState(value: unknown): BridgeState {
   if (!isRecord(value) || value.bridgeProtocol !== 1) throw Error('version');
   if (
@@ -93,25 +131,11 @@ function readState(value: unknown): BridgeState {
     typeof value.message !== 'string'
   )
     throw Error('connection');
-  const raw = value.snapshot;
-  const snapshot =
-    isRecord(raw) && typeof raw.sessionId === 'string'
-      ? {
-          sessionId: raw.sessionId,
-          playerRole: isRole(raw.playerRole) ? raw.playerRole : null,
-          playerChampion: isChampionId(raw.playerChampion)
-            ? raw.playerChampion
-            : null,
-          allies: readPicks(raw.allies),
-          enemies: readPicks(raw.enemies),
-          bans: Array.isArray(raw.bans) ? raw.bans.filter(isChampionId) : [],
-        }
-      : null;
   return {
     status: value.status,
     message: value.message,
     revision: value.revision,
-    snapshot,
+    snapshot: readSnapshot(value.snapshot),
   };
 }
 
@@ -134,7 +158,9 @@ export function createCompanionClient(
   function publish(next: Partial<CompanionState>, importSnapshot = false) {
     state = { ...state, ...next };
     state.syncing =
-      state.connected && !state.paused && bridge?.status === 'champ_select';
+      state.connected &&
+      !state.paused &&
+      (bridge?.status === 'champ_select' || bridge?.status === 'in_game');
     onChange(
       state,
       importSnapshot && state.syncing

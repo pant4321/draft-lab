@@ -30,6 +30,7 @@ import {
 type DatasetRequest = { generation: number; id?: string; exclusions: string[] };
 type ActiveData = { selection: DatasetSelection; profiles: LoadedProfiles };
 type ProfileRequests = Map<Role, Promise<NonNullable<LoadedProfiles[Role]>>>;
+type ProfileErrors = Partial<Record<Role, string>>;
 const errorMessage = (error: unknown) =>
   error instanceof Error ? error.message : 'Data unavailable.';
 
@@ -60,7 +61,7 @@ export function useDraftLab(
   const [entries, setEntries] = useState<DatasetStore['entries'] | null>(null);
   const [pending, setPending] = useState(true);
   const [datasetError, setDatasetError] = useState('');
-  const [profileError, setProfileError] = useState('');
+  const [profileErrors, setProfileErrors] = useState<ProfileErrors>({});
   const [companionState, setCompanionState] = useState(initialCompanionState);
   const companion = useRef<CompanionClient | null>(null);
   const currentGeneration = useRef(0);
@@ -147,7 +148,7 @@ export function useDraftLab(
         const { selection, profiles, rosterAction } = result;
         dispatch(rosterAction);
         setData({ selection, profiles });
-        setProfileError('');
+        setProfileErrors({});
         writeExcludedPatches(
           (selection.entry.patches ?? []).filter(
             (patch) => !selection.patches.includes(patch),
@@ -171,43 +172,37 @@ export function useDraftLab(
     };
   }, [request]);
 
+  const selection = data?.selection;
   useEffect(() => {
-    if (!data || pending) return;
-    const missing = neededRoles(state).filter((role) => !data.profiles[role]);
+    if (!selection || pending) return;
+    const roles = new Set([
+      ...neededRoles(state),
+      ...neededRoles(state, 'enemies'),
+    ]);
     let alive = true;
-    if (!missing.length) {
-      setProfileError('');
-      return;
-    }
-    setProfileError('');
-    void Promise.all(
-      missing.map(
-        async (role) =>
-          [role, await loadProfile(data.selection, role)] as const,
-      ),
-    ).then(
-      (loaded) => {
-        if (!alive) return;
-        setData((previous) =>
-          previous?.selection === data.selection
-            ? {
-                ...previous,
-                profiles: {
-                  ...previous.profiles,
-                  ...Object.fromEntries(loaded),
-                },
-              }
-            : previous,
-        );
-      },
-      (error) => {
-        if (alive) setProfileError(errorMessage(error));
-      },
-    );
+    setProfileErrors({});
+    for (const role of roles)
+      void loadProfile(selection, role).then(
+        (profile) => {
+          if (!alive) return;
+          setData((previous) =>
+            previous?.selection === selection && !previous.profiles[role]
+              ? { ...previous, profiles: { ...previous.profiles, [role]: profile } }
+              : previous,
+          );
+        },
+        (error) => {
+          if (alive)
+            setProfileErrors((previous) => ({
+              ...previous,
+              [role]: errorMessage(error),
+            }));
+        },
+      );
     return () => {
       alive = false;
     };
-  }, [data, pending, state.draft, state.ignoredPicks]);
+  }, [selection, pending, state.draft, state.ignoredPicks]);
 
   const initialized = data !== null;
   useEffect(() => {
@@ -324,6 +319,10 @@ export function useDraftLab(
     if (action) dispatch(action);
   }
 
+  const profileError = neededRoles(state)
+    .map((role) => profileErrors[role])
+    .find(Boolean) ?? '';
+
   return {
     state,
     dispatch,
@@ -333,6 +332,7 @@ export function useDraftLab(
     pending,
     datasetError,
     profileError,
+    profileErrors,
     companion,
     companionState,
     requestDataset,

@@ -14,7 +14,7 @@ A League of Legends draft assistant that ranks champions by synergy with your te
 
 Drag champions between roles to correct assignments. Dropping onto an occupied slot swaps the two picks. With **Auto guess roles** enabled, **Pinned** marks manual assignments. Use **Clear role pins** to let DraftEdge guess those roles again. Drafts, pools, and settings save in your browser.
 
-For automatic imports, install DraftEdge Companion on Windows, then choose **Companion → Open Companion** on the site. Allow the app to open and grant local access if prompted. DraftEdge connects in the tab you started from. Leave the companion open with League while drafting. [Setup, troubleshooting, and build notes](companion/README.md)
+For automatic imports, install DraftEdge Companion on Windows, then choose **Companion → Open Companion** on the site. Allow the app to open and grant local access if prompted. DraftEdge connects in the tab you started from. Keep live sync on through loading to update the draft with both teams' positions when League reports them. [Setup, troubleshooting, and build notes](companion/README.md)
 
 After League confirms your pick, DraftEdge opens a Ranked Solo/Duo build for your role and selected rank filter. It starts from the current patch and uses 14- or 30-day data when a choice needs more matchup coverage. A **Draft pick** replaces the usual choice when the evidence is strong enough. A **Draft option** appears under Alternatives. Expand either badge to see which opponents supported it and how many games went into the comparison. The matchup menu also lets you view one revealed opponent or all matchups. [Build recommendation scoring](docs/scoring.md#build-recommendations)
 
@@ -25,7 +25,7 @@ The rune summary highlights a recorded page for the recommended keystone. Select
 ## Scores and data
 
 - **Draft edge:** sample-adjusted synergy and counter contributions for a candidate. Optional **Include base WR** adds overall win rate above 50%.
-- **Team draft edge:** totals the allied composition, counting each unique ally pair once.
+- **Team draft edge:** compares both teams’ counters, synergy, and optional base strength using each team’s own matchup data.
 - **Blindability:** a 0–100 counterpick-safety percentile within a role. It orders the list before any picks are revealed.
 
 These scores rank draft fit. Use the rank dropdown at the top right to switch between All ranks and Emerald+ snapshots of global ranked solo/duo for the same patches. Stats refresh when a new snapshot is published. Recommendation roles need at least 1,000 games and either 0.5% role pick share or primary-role status.

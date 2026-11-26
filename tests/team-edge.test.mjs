@@ -151,3 +151,30 @@ test('excluded allies and enemies contribute no team terms, including ally base 
  assert.equal(result.enemyCount,4);
  assert.ok(result.terms.every(term=>!ignoredPicks.has(term.from.id)&&!ignoredPicks.has(term.to?.id)));
 });
+
+test('enemy team edge uses enemy profiles and the role weights of the actual draft slots',()=>{
+ const {profiles}=fixture(),draft=emptyDraft('jungle');
+ draft.allies.top=1;draft.enemies.top=11;draft.enemies.middle=13;
+ profiles.top[11]={
+  id:11,role:'top',wr:.53,
+  ally:{middle:{13:[4,1000,.52]}},
+  enemy:{top:{1:[4,1000,.52]},jungle:{2:[-2,1000,.49]}},
+ };
+ profiles.middle[13]={
+  id:13,role:'middle',wr:.52,
+  ally:{top:{11:[6,1000,.53]}},
+  enemy:{top:{1:[6,1000,.53]},jungle:{2:[2,1000,.51]}},
+ };
+ delete profiles.jungle;
+ const options={
+  side:'enemies',ownChampion:2,includeStrength:true,
+  multipliers:{allies:{top:2,jungle:.5},enemies:{top:3}},
+ };
+ const total=scoreTeamDraft(draft,profiles,options);
+ near(total.counter,10);near(total.synergy,5);near(total.base,5);near(total.score,20);
+ assert.ok(total.sampleRange[0]<total.score&&total.sampleRange[1]>total.score);
+ const excluded=scoreTeamDraft(draft,profiles,{...options,ignoredPicks:new Set([13])});
+ near(excluded.score,6.5);
+ delete profiles.middle[13].enemy.jungle;
+ assert.equal(scoreTeamDraft(draft,profiles,options).score,null);
+});

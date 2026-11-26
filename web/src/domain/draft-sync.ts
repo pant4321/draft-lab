@@ -1,6 +1,7 @@
 import { SIDES } from './types';
 import type {
-  ClientSnapshot,
+  ClientDraftSnapshot,
+  ClientMatchSnapshot,
   Draft,
   Role,
   RoleOverrides,
@@ -37,7 +38,7 @@ export function combineRoleHints(
 
 export function mergeClientSnapshot(
   current: Draft,
-  snapshot: ClientSnapshot,
+  snapshot: ClientDraftSnapshot,
   champions: Roster,
   {
     overrides = {},
@@ -109,4 +110,49 @@ export function mergeClientSnapshot(
     ownChampion: own,
     unknown: [...new Set(unknown)],
   };
+}
+
+export function applyMatchSnapshot(
+  snapshot: ClientMatchSnapshot,
+  champions: Roster,
+  previousOverrides: Partial<RoleOverrides>,
+) {
+  const ids = new Map(
+    Array.from(champions.values(), (champion) => [
+      champion.key.toLowerCase(),
+      champion.id,
+    ]),
+  );
+  const draft = emptyDraft(snapshot.player.role);
+  const hints: RoleOverrides = { allies: {}, enemies: {} };
+  const overrides: RoleOverrides = { allies: {}, enemies: {} };
+  const unknown: string[] = [];
+  const ownChampion = ids.get(snapshot.player.key) ?? null;
+  if (ownChampion === null) unknown.push(snapshot.player.key);
+  const seen = new Set(ownChampion === null ? [] : [ownChampion]);
+  for (const side of SIDES) {
+    const occupied = new Set<Role>(side === 'allies' ? [draft.role] : []);
+    for (const { key, role } of snapshot[side]) {
+      if (occupied.has(role)) throw Error('Conflicting match roles.');
+      occupied.add(role);
+      const id = ids.get(key);
+      if (id === undefined) {
+        unknown.push(key);
+        continue;
+      }
+      if (seen.has(id)) throw Error('Duplicate match champion.');
+      seen.add(id);
+      draft[side][role] = id;
+      hints[side][id] = role;
+      if (previousOverrides[side]?.[id] === role) overrides[side][id] = role;
+    }
+  }
+  for (const id of snapshot.bans) {
+    if (champions.has(id) && !seen.has(id)) {
+      draft.bans.push(id);
+      seen.add(id);
+    }
+  }
+  validateDraft(draft);
+  return { draft, overrides, hints, ownChampion, unknown };
 }

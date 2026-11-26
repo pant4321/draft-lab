@@ -31,6 +31,33 @@ async function drag(page: Page, source: Locator, target: Locator) {
   await page.mouse.up();
 }
 
+test('enemy draft edge updates with picks and an enemy role load failure leaves the allied score available', async ({ page }) => {
+  await ready(page);
+  const alliedEdge = page.getByRole('status', { name: 'Allied draft edge' });
+  const enemyEdge = page.getByRole('status', { name: 'Enemy draft edge' });
+  const top = page.getByRole('button', { name: 'Choose enemy Top' });
+  const profile = '**/data/draft/top.json?*';
+  const score = /^[+-]?\d+\.\d{2}$/;
+  await expect(enemyEdge).toHaveText('—');
+
+  await page.route(profile, (route) => route.fulfill({ status: 503 }));
+  const failed = page.waitForResponse((response) =>
+    response.url().includes('/data/draft/top.json') && response.status() === 503,
+  );
+  await pick(page, top, 'Garen');
+  await failed;
+  await expect(alliedEdge).toHaveText(score);
+  await expect(enemyEdge).toHaveText('—');
+
+  await page.unroute(profile);
+  const exclude = page.getByRole('button', { name: 'Exclude Garen from calculations' });
+  await exclude.click();
+  await exclude.click();
+  await expect(enemyEdge).toHaveText(score);
+  await exclude.click();
+  await expect(enemyEdge).toHaveText('—');
+});
+
 test('manual swaps are saved and can be released when auto roles are enabled', async ({
   page,
 }) => {

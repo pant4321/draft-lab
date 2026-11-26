@@ -6,7 +6,11 @@ import {
   moveDraftChampion,
   selectDraftRole,
 } from './draft-roles';
-import { combineRoleHints, mergeClientSnapshot } from './draft-sync';
+import {
+  applyMatchSnapshot,
+  combineRoleHints,
+  mergeClientSnapshot,
+} from './draft-sync';
 import { defaultMultipliers } from './draft-weights';
 import { ROLES } from './types';
 import { blankSavedDraft, blockedChampions } from '../services/storage';
@@ -114,12 +118,19 @@ function importSnapshot(
 ): DraftState {
   if (state.drag) return { ...state, queuedSnapshot: snapshot };
   const newSession = state.clientSession !== snapshot.sessionId;
-  const clientRoleOverride = newSession ? null : state.clientRoleOverride;
-  const result = mergeClientSnapshot(state.draft, snapshot, state.roster, {
-    overrides: state.roleOverrides,
-    newSession,
-    roleOverride: clientRoleOverride,
-  });
+  const clientRoleOverride =
+    newSession || snapshot.phase === 'game' ? null : state.clientRoleOverride;
+  const result = snapshot.phase === 'game'
+    ? applyMatchSnapshot(
+        snapshot,
+        state.roster,
+        newSession ? {} : state.roleOverrides,
+      )
+    : mergeClientSnapshot(state.draft, snapshot, state.roster, {
+        overrides: state.roleOverrides,
+        newSession,
+        roleOverride: clientRoleOverride,
+      });
   return reconcile({
     ...state,
     draft: result.draft,
@@ -319,11 +330,11 @@ export function draftReducer(
   }
 }
 
-export function neededRoles(state: DraftState) {
+export function neededRoles(state: DraftState, side: Side = 'allies') {
   return ROLES.filter((role) => {
-    const id = state.draft.allies[role];
+    const id = state.draft[side][role];
     return (
-      role === state.draft.role ||
+      (side === 'allies' && role === state.draft.role) ||
       (id !== null && !state.ignoredPicks.includes(id))
     );
   });

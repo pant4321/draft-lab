@@ -12,11 +12,12 @@ export function Explanations() {
           the candidate's overall win rate above 50%.
         </p>
         <p>
-          Team draft edge adds each unique allied synergy pair once and every
-          ally-versus-enemy matchup. It includes the selected preview or your
-          locked pick, plus each ally?s base strength when enabled. Synergy
-          pairs use the average of their two role weights. Missing active data
-          leaves the team total unavailable.
+          Team draft edge scores each team from its own perspective. It counts
+          each teammate synergy pair once and includes every matchup across the
+          two teams. Both totals account for your selected preview or locked
+          pick. Synergy pairs use the average of their two role weights. Enable
+          base strength to include each teammate’s base win rate above 50%.
+          A team total requires data for every matchup that counts.
         </p>
         <p>
           This score ranks draft fit. Adding pair effects has not been validated

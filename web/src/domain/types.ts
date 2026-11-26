@@ -67,7 +67,8 @@ export type ScoredPair = {
   ignoredPick?: boolean;
 };
 export type ClientPick = { id: ChampionId; role: Role | null };
-export type ClientSnapshot = {
+export type ClientDraftSnapshot = {
+  phase?: 'draft';
   sessionId: string;
   playerChampion: ChampionId | null;
   playerRole: Role | null;
@@ -75,6 +76,16 @@ export type ClientSnapshot = {
   enemies: ClientPick[];
   bans: ChampionId[];
 };
+export type ClientMatchPick = { key: string; role: Role };
+export type ClientMatchSnapshot = {
+  phase: 'game';
+  sessionId: string;
+  player: ClientMatchPick;
+  allies: ClientMatchPick[];
+  enemies: ClientMatchPick[];
+  bans: ChampionId[];
+};
+export type ClientSnapshot = ClientDraftSnapshot | ClientMatchSnapshot;
 export function isRole(value: unknown): value is Role {
   return ROLES.some((role) => role === value);
 }

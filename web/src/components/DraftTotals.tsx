@@ -4,7 +4,7 @@ import type { PoolThreat } from '../domain/blindability';
 import { ROLE_NAMES } from '../domain/draft-math';
 import { neededRoles } from '../domain/draft-state';
 import { scoreTeamDraft } from '../domain/team-edge';
-import type { Roster } from '../domain/types';
+import type { Roster, Side } from '../domain/types';
 import { blockedChampions } from '../services/storage';
 import type { DraftLab } from '../useDraftLab';
 import { Portrait, signed, tone } from './shared';
@@ -215,44 +215,53 @@ const display = (value?: number | null) =>
   value == null ? '—' : signed(value);
 const color = (value?: number | null) => (value == null ? 'zero' : tone(value));
 
-export function TeamEdge({ lab }: { lab: DraftLab }) {
-  const { state, selected, options, pending, data, profileError } = lab;
+function TeamEdgeScore({
+  lab,
+  side,
+  ownChampion,
+}: {
+  lab: DraftLab;
+  side: Side;
+  ownChampion: number | null;
+}) {
+  const { state, options, pending, data, profileErrors } = lab;
   const { draft, includeStrength, clientOwnChampion } = state;
-  const own = clientOwnChampion ?? selected;
-  const ownChampion = blockedChampions(draft).includes(own) ? null : own;
+  const allies = side === 'allies';
+  const titleId = `team-edge-${side}-title`;
+  const roles = neededRoles(state, side);
+  const profileError = roles.some((role) => profileErrors[role]);
   const profiles = data?.profiles;
-  const loading =
-    pending || neededRoles(state).some((role) => !profiles?.[role]);
+  const loading = pending || roles.some((role) => !profiles?.[role]);
   const estimate = useMemo(
     () =>
       profiles && !loading && !profileError
-        ? scoreTeamDraft(draft, profiles, { ownChampion, ...options })
+        ? scoreTeamDraft(draft, profiles, { ...options, ownChampion, side })
         : null,
-    [draft, profiles, loading, profileError, ownChampion, options],
+    [draft, profiles, loading, profileError, ownChampion, options, side],
   );
   const total = estimate?.ready ? estimate : null;
   const sampleRange = total?.sampleRange;
   const note = profileError
-    ? 'Team data unavailable. Try selecting your role again.'
+    ? 'Role data could not be loaded.'
     : total && !total.complete
       ? 'Some selected roles are missing matchup data.'
       : '';
   return (
-    <section className="team-edge" aria-labelledby="team-edge-title">
+    <section className={`team-edge-team ${allies ? 'ally' : 'enemy'}`} aria-labelledby={titleId}>
       <div className="team-edge-main">
-        <h2 id="team-edge-title">Team draft edge</h2>
+        <h3 id={titleId}>{allies ? 'Your team' : 'Enemy team'}</h3>
         <div className="team-edge-estimate">
           <output
-            id="team-edge-total"
+            aria-label={allies ? 'Allied draft edge' : 'Enemy draft edge'}
             className={'team-edge-total ' + color(total?.score)}
             aria-live="polite"
             aria-atomic="true"
             title={
-              loading
+              loading && !profileError
                 ? 'Calculating team edge'
                 : ownChampion !== null && clientOwnChampion === null
                   ? 'Includes your selected champion preview'
-                  : 'Current allied draft'
+                  : undefined
             }
           >
             {display(total?.score)}
@@ -279,26 +288,39 @@ export function TeamEdge({ lab }: { lab: DraftLab }) {
       <dl className="team-edge-parts">
         <div>
           <dt>Counters</dt>
-          <dd id="team-edge-counter" className={color(total?.counter)}>
+          <dd className={color(total?.counter)}>
             {display(total?.counter)}
           </dd>
         </div>
         <div>
           <dt>Synergy</dt>
-          <dd id="team-edge-synergy" className={color(total?.synergy)}>
+          <dd className={color(total?.synergy)}>
             {display(total?.synergy)}
           </dd>
         </div>
-        <div id="team-edge-base-part" hidden={!includeStrength}>
+        <div hidden={!includeStrength}>
           <dt>Base strength</dt>
-          <dd id="team-edge-base" className={color(total?.base)}>
+          <dd className={color(total?.base)}>
             {display(total?.base)}
           </dd>
         </div>
       </dl>
-      <p id="team-edge-note" className="team-edge-note" hidden={!note}>
-        {note}
-      </p>
+      {note && <p className="team-edge-note">{note}</p>}
+    </section>
+  );
+}
+
+export function TeamEdge({ lab }: { lab: DraftLab }) {
+  const { draft, clientOwnChampion } = lab.state;
+  const own = clientOwnChampion ?? lab.selected;
+  const ownChampion = blockedChampions(draft).includes(own) ? null : own;
+  return (
+    <section className="team-edge" aria-labelledby="team-edge-title">
+      <h2 id="team-edge-title">Team draft edge</h2>
+      <div className="team-edge-teams">
+        <TeamEdgeScore lab={lab} side="allies" ownChampion={ownChampion} />
+        <TeamEdgeScore lab={lab} side="enemies" ownChampion={ownChampion} />
+      </div>
     </section>
   );
 }

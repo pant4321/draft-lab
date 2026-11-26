@@ -30,17 +30,18 @@ function weight(
   return value;
 }
 
-// A team has one term per unordered ally pair and one per ally/enemy matchup.
+// A team has one term per unordered teammate pair and one per opposing matchup.
 export function scoreTeamDraft(
   draft: Draft,
   profiles: LoadedProfiles,
   {
     ownChampion = null,
+    side = 'allies',
     priorGames = 1000,
     includeStrength = false,
     multipliers,
     ignoredPicks,
-  }: ScoreOptions & { ownChampion?: number | null } = {},
+  }: ScoreOptions & { ownChampion?: number | null; side?: Side } = {},
 ) {
   validateDraft(draft);
   if (!Number.isFinite(priorGames) || priorGames < 0)
@@ -61,12 +62,14 @@ export function scoreTeamDraft(
   }
   const active = (id: number | null): id is number =>
     id != null && !ignoredPicks?.has(id);
+  const opposingSide = side === 'allies' ? 'enemies' : 'allies';
+  const slots = { allies, enemies: draft.enemies };
   const picks = ROLES.flatMap((role) => {
-    const id = allies[role];
+    const id = slots[side][role];
     return active(id) ? [{ role, id, profile: profiles[role]?.[id] }] : [];
   });
-  const enemies = ROLES.flatMap((role) => {
-    const id = draft.enemies[role];
+  const opponents = ROLES.flatMap((role) => {
+    const id = slots[opposingSide][role];
     return active(id) ? [{ role, id }] : [];
   });
   const terms: TeamTerm[] = [],
@@ -148,18 +151,18 @@ export function scoreTeamDraft(
         a,
         b,
         [a.profile?.ally?.[b.role]?.[b.id], b.profile?.ally?.[a.role]?.[a.id]],
-        (weight(multipliers, 'allies', a.role) +
-          weight(multipliers, 'allies', b.role)) /
+        (weight(multipliers, side, a.role) +
+          weight(multipliers, side, b.role)) /
           2,
       );
     }
-    for (const enemy of enemies) {
+    for (const opponent of opponents) {
       addMatchup(
         'counter',
         a,
-        enemy,
-        [a.profile?.enemy?.[enemy.role]?.[enemy.id]],
-        weight(multipliers, 'enemies', enemy.role),
+        opponent,
+        [a.profile?.enemy?.[opponent.role]?.[opponent.id]],
+        weight(multipliers, opposingSide, opponent.role),
       );
     }
     if (includeStrength) {
@@ -190,8 +193,8 @@ export function scoreTeamDraft(
     missing,
     terms,
     ignored,
-    alliedCount: picks.length,
-    enemyCount: enemies.length,
+    alliedCount: side === 'allies' ? picks.length : opponents.length,
+    enemyCount: side === 'enemies' ? picks.length : opponents.length,
     ready: picks.length > 0 && terms.length > 0,
     ownChampion,
   };
