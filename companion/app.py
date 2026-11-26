@@ -23,7 +23,7 @@ from companion.startup import START_IN_TRAY
 from companion.updates import UpdateChecker
 from companion.windows_launch import WindowsActivation, parse_activation_args
 
-VERSION = "0.3.0"
+VERSION = "0.3.1"
 LIVE_SITE = "https://pant4321.github.io/draft-lab/"
 LIVE_ORIGIN = "https://pant4321.github.io"
 BRIDGE_PROTOCOL = 1
