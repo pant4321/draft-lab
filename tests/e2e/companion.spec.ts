@@ -277,15 +277,90 @@ test('companion sync resumes across tabs and can relaunch after closing or quitt
   expect(context.pages()).toHaveLength(1);
 });
 
-test('locking a champion opens a dismissible build in the draft tab', async ({ page, context }) => {
+test('enemy picks rerank recommendations without taking over the League hover', async ({ page, context }) => {
+  const headers = {
+    'access-control-allow-origin': 'http://127.0.0.1:8791',
+    'access-control-allow-methods': 'GET',
+    'access-control-allow-headers': 'X-DraftLab-Session',
+  };
+  let revision = 1;
+  let hovered: number | null = null;
+  let enemies: { id: number }[] = [];
+  await context.addInitScript(() => {
+    Object.defineProperty(navigator, 'permissions', {
+      value: { query: async () => ({ state: 'granted', addEventListener() {}, removeEventListener() {} }) },
+    });
+  });
+  await context.route('http://127.0.0.1:8767/api/state*', (route) =>
+    route.request().method() === 'OPTIONS' ? route.fulfill({ status: 204, headers }) : route.fulfill({
+      headers,
+      json: {
+        bridgeProtocol: 1, revision, status: 'champ_select', message: 'Champion select',
+        champSelect: { sessionId: 'fixture', championId: hovered, role: 'jungle' },
+        snapshot: { sessionId: 'fixture', playerRole: 'jungle', playerChampion: null, allies: [], enemies, bans: [] },
+      },
+    }),
+  );
+  await page.goto('/#' + new URLSearchParams({ companion: 's'.repeat(43), port: '8767' }));
+  await expect(page.getByText(/^League · /)).toContainText('Live');
+  const slot = page.getByLabel('Your Jungle pick preview');
+  const viewedPick = page.getByRole('button', { name: /^View .* build$/ });
+  const inspectedPick = page.getByRole('button', { name: /^Inspect /, pressed: true });
+  const enemyTop = page.getByRole('button', { name: 'Choose enemy Top' });
+
+  enemies = [{ id: 516 }];
+  revision++;
+  await expect(enemyTop).toContainText('Ornn');
+  await expect(page.getByRole('heading', { name: 'Best picks for this draft' })).toBeVisible();
+  await expect(inspectedPick).toHaveCount(0);
+  await expect(viewedPick).toHaveCount(0);
+  await expect(slot.locator('img')).toHaveCount(0);
+
+  hovered = 32;
+  revision++;
+  await expect(slot).toContainText('Amumu');
+  await expect(inspectedPick).toHaveAccessibleName(/^Inspect Amumu,/);
+  await expect(viewedPick).toHaveAccessibleName('View Amumu build');
+
+  await page.addStyleTag({ content: '#rankings { max-height: 70px; overflow-anchor: none; }' });
+  await inspectedPick.evaluate((row) => {
+    const list = row.closest<HTMLElement>('#rankings')!;
+    list.scrollTop += row.getBoundingClientRect().top - list.getBoundingClientRect().top;
+  });
+  await expect(inspectedPick).toBeInViewport({ ratio: 0.9 });
+  const initialRank = (await inspectedPick.getAttribute('aria-label'))?.match(/rank \d+/)?.[0];
+  expect(initialRank).toBeTruthy();
+  enemies = [...enemies, { id: 64 }];
+  revision++;
+  await expect(page.getByRole('button', { name: 'Choose enemy Jungle' })).toContainText('Lee Sin');
+  await expect(inspectedPick).not.toHaveAccessibleName(new RegExp(`${initialRank}\\b`));
+  await expect(inspectedPick).toBeInViewport({ ratio: 0.9 });
+
+  await page.getByRole('button', { name: 'Choose enemy Mid' }).click();
+  const picker = page.getByRole('dialog', { name: 'Choose enemy Mid' });
+  await picker.getByRole('searchbox').fill('Ahri');
+  await picker.getByRole('button', { name: 'Pick Ahri', exact: true }).click();
+  await expect(page.getByText(/^League · /)).toContainText('Paused');
+  hovered = 35;
+  revision++;
+  await expect(slot).toContainText('Shaco');
+  await expect(viewedPick).toHaveAccessibleName('View Shaco build');
+  await expect(page.getByRole('button', { name: 'Choose enemy Mid' })).toContainText('Ahri');
+});
+
+test('builds apply runes and spells together in champion select and remember the Flash slot', async ({ page, context }) => {
   const origin = 'http://127.0.0.1:8791';
   const token = 's'.repeat(43);
   const reconnectKey = 'r'.repeat(43);
   let locked = false;
+  let status = 'connected';
+  let hovered: number | null = null;
   let revision = 1;
   let sessionId = 'fixture';
+  let flashPosition: 'right' | 'left' | null = null;
   let enemies: { id: number }[] = [];
   const buildRequests: Record<string, string>[] = [];
+  const loadoutRequests: unknown[] = [];
 
   await context.addInitScript(() => {
     Object.defineProperty(navigator, 'permissions', {
@@ -304,13 +379,18 @@ test('locking a champion opens a dismissible build in the draft tab', async ({ p
     const headers = {
       'access-control-allow-origin': origin,
       'access-control-allow-methods': 'GET, POST',
-      'access-control-allow-headers': 'X-DraftLab-Session, X-DraftLab-Reconnect',
+      'access-control-allow-headers': 'Content-Type, X-DraftLab-Session, X-DraftLab-Reconnect',
     };
     if (request.method() === 'OPTIONS') {
       await route.fulfill({ status: 204, headers });
     } else if (url.pathname === '/api/reconnect') {
       expect(request.headers()['x-draftlab-reconnect']).toBe(reconnectKey);
       await route.fulfill({ headers, json: { token, port: 8767, championBuildsVersion: 2, draftBuilds: true } });
+    } else if (url.pathname === '/api/loadout') {
+      expect(request.method()).toBe('POST');
+      expect(request.headers()['x-draftlab-session']).toBe(token);
+      loadoutRequests.push(request.postDataJSON());
+      await route.fulfill({ headers, json: { applied: true } });
     } else if (url.pathname === '/api/build') {
       expect(request.headers()['x-draftlab-session']).toBe(token);
       const params = Object.fromEntries(url.searchParams);
@@ -387,12 +467,13 @@ test('locking a champion opens a dismissible build in the draft tab', async ({ p
       await route.fulfill({
         headers,
         json: {
-          bridgeProtocol: 1, revision, status: 'champ_select',
-          message: 'Test champion select', reconnectKey,
-          snapshot: {
+          bridgeProtocol: 1, revision, status,
+          message: 'Test connection', reconnectKey, temporaryRunes: true, loadoutImport: true,
+          champSelect: status === 'connected' ? null : { sessionId, championId: hovered, flashPosition },
+          snapshot: status === 'champ_select' ? {
             sessionId, playerChampion: locked ? 103 : null,
             playerRole: 'middle', allies: [], enemies, bans: [],
-          },
+          } : null,
         },
       });
     }
@@ -421,28 +502,160 @@ test('locking a champion opens a dismissible build in the draft tab', async ({ p
         3020: image("Sorcerer's Shoes"), 3118: image('Malignance'), 3135: image('Void Staff'),
       } };
     } else if (path.endsWith('runesReforged.json')) {
-      const tree = (name: string, slots: [number, string][][]) => ({
-        name, icon: 'test.png',
+      const tree = (id: number, name: string, slots: [number, string][][]) => ({
+        id, name, icon: 'test.png',
         slots: slots.map((runes) => ({ runes: runes.map(([id, name]) => ({ id, name, icon: 'test.png' })) })),
       });
       json = [
-        tree('Precision', [[[8005, 'Press the Attack']]]),
-        tree('Domination', [
+        tree(8300, 'Inspiration', [[[8351, 'Glacial Augment']], [[8304, 'Magical Footwear']], [[8313, 'Biscuit Delivery']], [[8347, 'Cosmic Insight']]]),
+        tree(8200, 'Sorcery', [[[8214, 'Summon Aery']], [[8226, 'Manaflow Band']], [[8210, 'Transcendence']], [[8237, 'Scorch']]]),
+        tree(8000, 'Precision', [[[8005, 'Press the Attack']], [[9111, 'Triumph']], [[9104, 'Legend: Alacrity']], [[8014, 'Coup de Grace']]]),
+        tree(8100, 'Domination', [
           [[8112, 'Electrocute'], [8128, 'Dark Harvest']],
           [[8139, 'Taste of Blood']], [[8140, 'Grisly Mementos']], [[8106, 'Ultimate Hunter']],
         ]),
-        tree('Sorcery', [[[8214, 'Summon Aery']], [[8226, 'Manaflow Band']], [[8210, 'Transcendence']], [[8237, 'Scorch']]]),
+        tree(8400, 'Resolve', [[[8437, 'Grasp of the Undying']], [[8446, 'Demolish']], [[8429, 'Conditioning']], [[8451, 'Overgrowth']]]),
       ];
     }
     await route.fulfill(json ? { json } : { status: 404 });
   });
 
   await page.goto('/#' + new URLSearchParams({ companion: token, port: '8767' }));
-  await expect(page.getByText(/^League · /)).toContainText('Live');
+  const connection = page.getByText(/^League · /);
+  await expect(connection).toContainText('Ready');
   const build = page.getByRole('dialog', { name: 'Ahri build' });
   const reopen = page.getByRole('button', { name: 'View Ahri build' });
-  await expect(build).toBeHidden();
-  await expect(reopen).toBeHidden();
+  const view = page.getByRole('button', { name: /^View .*build$/ });
+  await expect(view).toBeHidden();
+  const settings = page.getByRole('button', { name: /^Settings/ });
+  const settingsDialog = page.getByRole('dialog', { name: 'Draft settings' });
+  const flash = settingsDialog.getByRole('combobox', { name: 'Flash position' });
+  await settings.click();
+  await expect(flash).toHaveValue('');
+  await settingsDialog.getByRole('button', { name: 'Done', exact: true }).click();
+
+  await page.getByRole('button', { name: 'Select Mid role' }).click();
+  const ahri = page.getByRole('button', { name: /^Inspect Ahri,/ });
+  const slot = page.getByLabel('Your Mid pick preview');
+  await expect(ahri).toBeVisible();
+  await ahri.evaluate((row) => {
+    const list = row.closest<HTMLElement>('#rankings')!;
+    list.scrollTop = 0;
+    if (row.getBoundingClientRect().top < list.getBoundingClientRect().bottom)
+      list.scrollTop = list.scrollHeight;
+  });
+  await expect(ahri).not.toBeInViewport();
+  status = 'unsupported_draft';
+  hovered = 103;
+  revision++;
+  await expect(reopen).toBeVisible();
+  await expect(slot).toContainText('Ahri');
+  await expect(slot.getByText('PREVIEW', { exact: true })).toBeVisible();
+  await expect(slot.locator('img')).toHaveAttribute('src', /\/Ahri\.png$/);
+  await expect(ahri).toHaveAttribute('aria-pressed', 'true');
+  await expect(ahri).toBeInViewport({ ratio: 0.9 });
+
+  hovered = null;
+  revision++;
+  await expect(view).toBeHidden();
+  await expect(slot.locator('img')).toHaveCount(0);
+  const search = page.getByRole('searchbox', { name: 'Filter recommendations' });
+  await search.fill('Zed');
+  await expect(ahri).toHaveCount(0);
+  hovered = 103;
+  revision++;
+  await expect(search).toHaveValue('');
+  await expect(search).toBeFocused();
+  await expect(ahri).toHaveAttribute('aria-pressed', 'true');
+  await expect(ahri).toBeInViewport({ ratio: 0.9 });
+
+  hovered = null;
+  status = 'connected';
+  revision++;
+  await expect(view).toBeHidden();
+  await page.getByRole('button', { name: /^Inspect / }).first().click();
+  await expect(view).toBeVisible();
+  await view.click();
+  const preview = page.getByRole('dialog', { name: /build$/i });
+  await expect(preview.getByRole('heading', { name: 'Runes' })).toBeVisible();
+  await expect(preview.getByRole('button', { name: /^Apply (?:runes|spells)/ })).toBeHidden();
+
+  status = 'unsupported_draft';
+  flashPosition = 'right';
+  revision++;
+  await expect(preview.getByRole('button', { name: 'Apply runes and spells' })).toBeVisible();
+  hovered = 103;
+  revision++;
+  await expect(build.getByRole('heading', { name: 'Runes' })).toBeVisible();
+  await expect.poll(() => buildRequests.at(-1)).toMatchObject({ id: '103', role: 'middle' });
+  const applyLoadout = build.getByRole('button', { name: 'Apply runes and spells', exact: true });
+  const closeBuild = build.getByRole('button', { name: 'Close build' });
+  async function expectApplyLeftOfClose() {
+    const [applyBox, closeBox] = await Promise.all([applyLoadout.boundingBox(), closeBuild.boundingBox()]);
+    expect(applyBox!.x + applyBox!.width).toBeLessThanOrEqual(closeBox!.x);
+    expect(applyBox!.y).toBe(closeBox!.y);
+  }
+  await expectApplyLeftOfClose();
+  const resetRunes = build.getByRole('button', { name: 'Reset runes' });
+  const primaryPath = build.getByRole('button', { name: /^Primary rune path:/ });
+  const secondaryPath = build.getByRole('button', { name: /^Secondary rune path:/ });
+  const primaryPaths = build.getByRole('group', { name: 'Primary rune paths' });
+  const secondaryPaths = build.getByRole('group', { name: 'Secondary rune paths' });
+  const electrocute = build.getByRole('button', { name: 'Electrocute', exact: true });
+  const darkHarvest = build.getByRole('button', { name: 'Dark Harvest', exact: true });
+  await expect(resetRunes).toBeHidden();
+  await expect(primaryPaths).toBeHidden();
+  await primaryPath.click();
+  await expect(primaryPaths.getByRole('button')).toHaveCount(5);
+  const pathNames = await primaryPaths.getByRole('button').evaluateAll((buttons) =>
+    buttons.map((button) => button.getAttribute('aria-label')),
+  );
+  expect(pathNames).toEqual(['Precision', 'Domination', 'Sorcery', 'Resolve', 'Inspiration']);
+  await primaryPaths.getByRole('button', { name: 'Sorcery', exact: true }).click();
+  await expect(primaryPath).toHaveAccessibleName('Primary rune path: Sorcery');
+  await expect(secondaryPath).toHaveAccessibleName('Secondary rune path: Domination');
+  await expect(primaryPath).toBeFocused();
+  await resetRunes.click();
+
+  await secondaryPath.click();
+  await secondaryPaths.getByRole('button', { name: 'Domination', exact: true }).click();
+  await expect(secondaryPath).toHaveAccessibleName('Secondary rune path: Domination');
+  await expect(primaryPath).toHaveAccessibleName('Primary rune path: Sorcery');
+  await resetRunes.click();
+
+  await primaryPath.click();
+  await primaryPaths.getByRole('button', { name: 'Precision', exact: true }).click();
+  await expect(build.getByRole('button', { name: 'Press the Attack', pressed: true })).toBeVisible();
+  await resetRunes.click();
+  await expect(primaryPath).toHaveAccessibleName('Primary rune path: Domination');
+  await expect(electrocute).toHaveAttribute('aria-pressed', 'true');
+
+  await darkHarvest.click();
+  await build.getByRole('button', { name: 'Scorch', exact: true }).click();
+  await build.getByRole('list', { name: 'Flex shard' }).getByRole('button', { name: 'Move speed', exact: true }).click();
+  await expect(darkHarvest).toHaveAttribute('aria-pressed', 'true');
+  await expect(build.getByRole('button', { name: 'Manaflow Band', pressed: false })).toBeVisible();
+  await expect(build.getByRole('button', { name: 'Transcendence', pressed: true })).toBeVisible();
+  await expect(resetRunes).toBeVisible();
+  expect(loadoutRequests).toHaveLength(0);
+  await applyLoadout.click();
+  await expect(build.getByRole('status').filter({ hasText: /applied/i })).toBeVisible();
+  expect(loadoutRequests).toEqual([{
+    sessionId: 'fixture', flashPosition: 'right', spells: [14, 4],
+    runes: { primary: [8128, 8139, 8140, 8106], secondary: [8210, 8237], shards: [5005, 5010, 5011] },
+  }]);
+  await resetRunes.click();
+  await expect(resetRunes).toBeHidden();
+  await expect(electrocute).toHaveAttribute('aria-pressed', 'true');
+  await expect(build.getByRole('button', { name: 'Manaflow Band', pressed: true })).toBeVisible();
+  await expect(build.getByRole('list', { name: 'Flex shard' }).getByRole('button', { name: 'Adaptive force', pressed: true })).toBeVisible();
+  await build.getByRole('button', { name: 'Close build' }).click();
+  await expect(reopen).toBeVisible();
+  await settings.click();
+  await expect(flash).toHaveValue('right');
+  await flash.selectOption('left');
+  await settingsDialog.getByRole('button', { name: 'Done', exact: true }).click();
+  status = 'champ_select';
   locked = true;
   revision++;
   await expect(build).toBeVisible();
@@ -452,14 +665,15 @@ test('locking a champion opens a dismissible build in the draft tab', async ({ p
   await expect(build.getByText('Patch 16.23', { exact: true })).toBeVisible();
   await expect.poll(() => buildRequests.at(-1)).toEqual({ slug: 'ahri', id: '103', role: 'middle', tier: 'all' });
   await expect(build.getByRole('button', { name: /most picked|highest win rate/i })).toHaveCount(0);
-  const recommended = build.getByRole('img', { name: 'Electrocute (selected)', exact: true });
+  const recommended = build.getByRole('button', { name: 'Electrocute', pressed: true, exact: true });
   await expect(recommended).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
   await expect(recommended.locator('.build-icon')).toHaveCSS('opacity', '1');
   await expect(recommended.locator('.build-icon')).toHaveCSS('border-top-width', '0px');
-  await expect(build.getByRole('img', { name: 'Dark Harvest', exact: true })
+  await expect(build.getByRole('button', { name: 'Dark Harvest', pressed: false, exact: true })
     .locator('.build-icon')).not.toHaveCSS('opacity', '1');
   await expect(build.getByRole('group', { name: 'Stat shards' })
-    .getByRole('img', { name: 'Adaptive force (selected)', exact: true })).toBeVisible();
+    .getByRole('button', { name: 'Adaptive force', pressed: true, exact: true })).toBeVisible();
+  await expect(applyLoadout).toBeVisible();
   await expect(build.getByRole('heading', { name: 'Primary trees' })).toBeHidden();
   const runeToggle = build.getByRole('button', { name: /full rune trees/ });
   await runeToggle.click();
@@ -479,7 +693,7 @@ test('locking a champion opens a dismissible build in the draft tab', async ({ p
     .locator('.build-icon')).not.toHaveCSS('opacity', '1');
   await runeToggle.click();
   await expect(build.getByRole('heading', { name: 'Primary trees' })).toBeHidden();
-  await expect(build.getByRole('img', { name: 'Electrocute (selected)', exact: true })).toBeVisible();
+  await expect(recommended).toBeVisible();
   const item = build.getByRole('img', { name: "Doran's Ring", exact: true });
   await expect(item).toBeVisible();
   await expect(item).toHaveAttribute('title', "Doran's Ring");
@@ -505,6 +719,7 @@ test('locking a champion opens a dismissible build in the draft tab', async ({ p
   const spells = build.getByRole('region', { name: 'Summoner spells' });
   await expect(spells.getByRole('img', { name: 'Flash', exact: true })).toBeVisible();
   await expect(spells.getByRole('img', { name: 'Ignite', exact: true })).toBeVisible();
+  await expect(spells.getByRole('list').first().getByRole('img').first()).toHaveAccessibleName('Flash');
   const teleport = spells.getByRole('img', { name: 'Teleport', exact: true });
   const spellToggle = spells.getByRole('button', { name: /summoner spell alternatives/ });
   await expect(teleport).toBeHidden();
@@ -531,12 +746,19 @@ test('locking a champion opens a dismissible build in the draft tab', async ({ p
 
   const desktop = page.viewportSize()!;
   await page.setViewportSize({ width: 390, height: 844 });
+  await expectApplyLeftOfClose();
   const [, mobileRunes, mobileItems, mobileStarting, mobileBoots, mobileCore] = await headingsLayout();
   expect(mobileRunes!.y).toBeLessThan(mobileItems!.y);
   expect(mobileItems!.y).toBeLessThan(mobileStarting!.y);
   expect(mobileStarting!.x).toBeLessThan(mobileBoots!.x);
   expect(mobileBoots!.y).toBeLessThan(mobileCore!.y);
   await expectItemStatsBesideIcons();
+  await primaryPath.click();
+  const lastPath = primaryPaths.getByRole('button', { name: 'Inspiration', exact: true });
+  await expect(lastPath).toBeInViewport({ ratio: 0.9 });
+  await lastPath.press('Escape');
+  await expect(primaryPaths).toBeHidden();
+  await expect(primaryPath).toBeFocused();
   await page.setViewportSize(desktop);
 
   const secondLegendary = build.getByRole('region', { name: 'Second legendary', exact: true });
@@ -604,11 +826,19 @@ test('locking a champion opens a dismissible build in the draft tab', async ({ p
   await expect.poll(() => buildRequests.at(-1)).toMatchObject({
     opponent: 'leona', opponentId: '89', opponentRole: 'support', tier: 'emerald_plus',
   });
-  await expect(build.getByRole('status')).toContainText(/Showing all matchups.*Leona/);
+  await expect(build.getByRole('status').filter({ hasText: /Showing all matchups.*Leona/ })).toBeVisible();
 
   await matchup.selectOption('all');
   await expect.poll(() => buildRequests.at(-1)).toEqual({
     slug: 'ahri', id: '103', role: 'middle', tier: 'emerald_plus',
   });
   await expect(secondLegendary.getByRole('img', { name: 'Shadowflame', exact: true })).toBeVisible();
+  status = 'connected';
+  revision++;
+  await expect(applyLoadout).toBeHidden();
+  expect(loadoutRequests).toHaveLength(1);
+  await closeBuild.click();
+  await page.reload();
+  await settings.click();
+  await expect(flash).toHaveValue('left');
 });

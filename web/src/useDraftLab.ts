@@ -16,14 +16,17 @@ import {
 } from './domain/draft-state';
 import type { DraftAction } from './domain/draft-state';
 import type { Champion, LoadedProfiles, Role, Roster } from './domain/types';
+import type { FlashPosition } from './services/champion-builds';
 import { initialCompanionState } from './services/companion';
 import type { CompanionClient, CompanionConnector } from './services/companion';
 import { readDatasetIndex } from './services/datasets';
 import type { DatasetSelection, DatasetStore } from './services/datasets';
 import {
   readExcludedPatches,
+  readFlashPosition,
   readPreferences,
   writeExcludedPatches,
+  writeFlashPosition,
   writePreferences,
 } from './services/storage';
 
@@ -63,6 +66,12 @@ export function useDraftLab(
   const [datasetError, setDatasetError] = useState('');
   const [profileErrors, setProfileErrors] = useState<ProfileErrors>({});
   const [companionState, setCompanionState] = useState(initialCompanionState);
+  const [flashPosition, setFlashPosition] = useState(readFlashPosition);
+  const observedFlashSession = useRef<string | null>(null);
+  const [inspection, setInspection] = useState<{
+    id: number;
+    livePickKey: string | null;
+  } | null>(null);
   const companion = useRef<CompanionClient | null>(null);
   const currentGeneration = useRef(0);
   const index = useRef<Promise<DatasetStore> | null>(null);
@@ -261,19 +270,62 @@ export function useDraftLab(
       : { ...result, ranked: prioritizePool(result.ranked, pool) };
   }, [draft, roleProfiles, blind, roster, options, pool]);
 
-  const selected =
+  const { champSelect } = companionState;
+  const flashSession = champSelect?.sessionId;
+  const reportedFlash = champSelect?.flashPosition;
+  useEffect(() => {
+    if (!flashSession || !reportedFlash || observedFlashSession.current === flashSession) return;
+    observedFlashSession.current = flashSession;
+    setFlashPosition((previous) => previous ?? reportedFlash);
+  }, [flashSession, reportedFlash]);
+
+  useEffect(() => writeFlashPosition(flashPosition), [flashPosition]);
+
+  function changeFlashPosition(position: FlashPosition | null) {
+    if (flashSession) observedFlashSession.current = flashSession;
+    setFlashPosition(position);
+  }
+
+  const rankedSelection =
     ranking &&
     !state.inheritedSelection &&
     !ranking.ranked.some((row) => row.id === state.selected)
-      ? ranking.mode === 'draft'
+      ? !champSelect && ranking.mode === 'draft'
         ? (ranking.ranked[0]?.id ?? null)
         : null
       : state.selected;
 
   useEffect(() => {
-    if (ranking && !pending && selected !== state.selected)
-      dispatch({ type: 'select', id: selected });
-  }, [ranking, pending, selected, state.selected]);
+    if (ranking && !pending && rankedSelection !== state.selected)
+      dispatch({ type: 'select', id: rankedSelection });
+  }, [ranking, pending, rankedSelection, state.selected]);
+
+  const lockedChampion = state.clientOwnChampion !== null &&
+    (!champSelect || champSelect.sessionId === state.clientSession)
+    ? roster.get(state.clientOwnChampion)
+    : undefined;
+  const clientPreview = champSelect?.championId != null
+    ? roster.get(champSelect.championId)
+    : undefined;
+  const liveChampion = lockedChampion ?? clientPreview;
+  const livePickKey = liveChampion
+    ? JSON.stringify([champSelect?.sessionId ?? state.clientSession, liveChampion.id])
+    : null;
+  const inspectedCandidate = inspection?.id === rankedSelection ? inspection.id : null;
+  const selected = liveChampion && (inspectedCandidate === null || livePickKey !== inspection?.livePickKey)
+    ? liveChampion.id
+    : champSelect ? inspectedCandidate : rankedSelection;
+
+  useEffect(() => {
+    setInspection((previous) => previous?.livePickKey && previous.livePickKey !== livePickKey
+      ? { ...previous, livePickKey: null }
+      : previous);
+  }, [livePickKey]);
+
+  function inspectCandidate(id: number) {
+    setInspection({ id, livePickKey });
+    dispatch({ type: 'select', id });
+  }
 
   const { autoRoles, roleOverrides, inheritedSelection } = state;
   useEffect(() => {
@@ -284,7 +336,7 @@ export function useDraftLab(
           includeStrength,
           autoRoles,
           roleOverrides,
-          selected,
+          selected: rankedSelection,
           inheritedSelection,
           ignoredPicks: ignored,
         },
@@ -297,7 +349,7 @@ export function useDraftLab(
     includeStrength,
     autoRoles,
     roleOverrides,
-    selected,
+    rankedSelection,
     inheritedSelection,
     ignored,
     pools,
@@ -335,6 +387,8 @@ export function useDraftLab(
     profileErrors,
     companion,
     companionState,
+    flashPosition,
+    changeFlashPosition,
     requestDataset,
     requestedDatasetId: pending ? request.id : undefined,
     exclusions,
@@ -344,6 +398,11 @@ export function useDraftLab(
     blind,
     ranking,
     selected,
+    clientPreview,
+    lockedChampion,
+    liveChampion,
+    livePickKey,
+    inspectCandidate,
     catalog,
   };
 }

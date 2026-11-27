@@ -197,26 +197,28 @@ export function TeamBoard({
   side,
   openPicker,
   openBuild,
+  ownChampion,
+  ownLocked = false,
   drag,
 }: {
   lab: DraftLab;
   side: Side;
   openPicker: (target: PickerTarget) => void;
   openBuild?: () => void;
+  ownChampion?: Champion;
+  ownLocked?: boolean;
   drag: ReturnType<typeof useBoardDrag>;
 }) {
   const {
     state: {
       draft,
       roster,
-      clientOwnChampion,
       autoRoles,
       roleOverrides,
       roleDetails,
       ignoredPicks,
       drag: active,
     },
-    selected,
     pending,
     manual,
     dispatch,
@@ -235,8 +237,8 @@ export function TeamBoard({
       <div id={side} className="slots">
         {ROLES.map((role) => {
           const own = allied && role === draft.role;
-          const id = own ? (clientOwnChampion ?? selected) : draft[side][role];
-          const champion = id === null ? undefined : roster.get(id);
+          const id = draft[side][role];
+          const champion = own ? ownChampion : id === null ? undefined : roster.get(id);
           const pinned =
             autoRoles && !own && id !== null && roleOverrides[side][id] === role;
           const guess = !own && id !== null ? roleDetails[side][id] : undefined;
@@ -265,7 +267,7 @@ export function TeamBoard({
               role={role}
               champion={champion}
               own={own}
-              locked={clientOwnChampion !== null}
+              locked={own && ownLocked}
               marker={pinned ? 'fixed' : uncertain ? 'uncertain' : undefined}
               hint={hint}
             />
@@ -312,7 +314,7 @@ export function TeamBoard({
                   {content}
                 </button>
               )}
-              {own && champion && clientOwnChampion !== null && openBuild && (
+              {own && champion && openBuild && (
                 <button
                   className="slot-build"
                   type="button"

@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { poolSections } from '../domain/champion-pool';
 import { sortRecommendationRows } from '../domain/draft-list';
 import { ROLE_NAMES } from '../domain/draft-math';
@@ -81,9 +81,10 @@ function CandidateRow({
         data-candidate={row.id}
         title={evidence || undefined}
         aria-label={`Inspect ${name}, rank ${index}${title ? ' in ' + title.toLowerCase() : ''}${row.score === null ? '' : ', draft edge ' + score}${evidence ? '. ' + evidence : ''}`}
+        aria-pressed={row.id === lab.selected}
         onClick={() => {
           spread.hide();
-          lab.dispatch({ type: 'select', id: row.id });
+          lab.inspectCandidate(row.id);
         }}
       />
       <span className="pick-lead">
@@ -154,10 +155,13 @@ export function Recommendations({
     pending,
     datasetError,
     profileError,
+    liveChampion,
+    livePickKey,
     dispatch,
   } = lab;
   const [sort, setSort] = useState<Sort | null>(null);
   const results = useRef<HTMLDivElement>(null);
+  const revealedLiveRow = useRef<{ element: Element; offset: number } | null>(null);
   const mode = ranking?.mode;
   const blindMode = mode === 'blindability';
   const rows = useMemo<RankingRow[]>(
@@ -204,6 +208,35 @@ export function Recommendations({
   const hasRows = sections.some((section) => section.rows.length);
   const ready = ranking && !pending && !profileError;
   const unavailable = profileError || (!ranking && datasetError);
+  const liveId = liveChampion?.id;
+  const hasLiveRow = Boolean(ready && rows.some((row) => row.id === liveId));
+
+  useLayoutEffect(() => {
+    revealedLiveRow.current = null;
+  }, [livePickKey]);
+
+  useLayoutEffect(() => {
+    const list = results.current;
+    if (!livePickKey || !list || !hasLiveRow) return;
+    const row = list.querySelector(`[data-candidate="${liveId}"]`);
+    if (!row) {
+      if (query && !revealedLiveRow.current) setSearch('');
+      return;
+    }
+
+    const { top, bottom } = row.getBoundingClientRect();
+    const listTop = list.getBoundingClientRect().top;
+    // Use the row's position in the list so manual scrolling doesn't count as a rerank.
+    const offset = Math.round(top - listTop + list.scrollTop);
+    const previous = revealedLiveRow.current;
+    if (previous?.element === row && previous.offset === offset) return;
+
+    revealedLiveRow.current = { element: row, offset };
+    const listBottom = listTop + list.clientHeight;
+    if (top < listTop) list.scrollTop += top - listTop;
+    else if (bottom > listBottom) list.scrollTop += bottom - listBottom;
+  }, [direction, hasLiveRow, key, liveId, livePickKey, pool, query, rows, setSearch]);
+
   return (
     <section className="recommendations" aria-labelledby="ranking-title">
       <h1 id="ranking-title" className="sr-only">

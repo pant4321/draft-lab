@@ -14,6 +14,7 @@ from urllib.request import Request, urlopen
 
 from companion.app import BridgeServer, State, VERSION, LIVE_SITE, LIVE_ORIGIN, LIVE_ORIGINS
 from companion.lcu import Credentials, LeagueClient, LiveGameClient, Poller, normalize_match, normalize_session
+from companion.rune_import import RuneSelection
 
 
 def example_session():
@@ -147,8 +148,34 @@ class BridgeTests(unittest.TestCase):
         self.server.server_close()
         self.thread.join()
 
-    def request(self, path, headers=None, method="GET"):
-        return urlopen(Request(self.server.origin + path, headers=headers or {}, method=method), timeout=2)
+    def request(self, path, headers=None, method="GET", data=None):
+        return urlopen(Request(self.server.origin + path, headers=headers or {}, method=method, data=data), timeout=2)
+
+    def test_rune_route_requires_a_paired_origin_and_a_valid_selection(self):
+        data = {"sessionId": "1:1", "primary": [8112, 8139, 8140, 8106],
+                "secondary": [8226, 8210], "shards": [5005, 5008, 5011]}
+        body = json.dumps(data).encode()
+        origin = {"Origin": LIVE_ORIGIN, "Content-Type": "application/json"}
+        auth = {**origin, "X-DraftLab-Session": self.server.session_token}
+        preflight = {"Origin": LIVE_ORIGIN, "Access-Control-Request-Method": "POST",
+                     "Access-Control-Request-Headers": "content-type, x-draftlab-session"}
+        with patch.object(self.server, "apply_runes") as apply:
+            with self.request("/api/runes", preflight, "OPTIONS") as response:
+                self.assertEqual(response.status, 204)
+                self.assertIn("Content-Type", response.headers["Access-Control-Allow-Headers"])
+            for headers in (origin, {**auth, "Origin": "https://other.example"}):
+                with self.assertRaises(HTTPError) as error:
+                    self.request("/api/runes", headers, "POST", body)
+                self.assertEqual(error.exception.code, 403)
+            for invalid in (b" " * 1025, json.dumps({**data, "pageId": 1}).encode(),
+                            json.dumps({**data, "primary": [True, 8139, 8140, 8106]}).encode()):
+                with self.assertRaises(HTTPError) as error:
+                    self.request("/api/runes", auth, "POST", invalid)
+                self.assertEqual(error.exception.code, 400)
+            apply.assert_not_called()
+            with self.request("/api/runes", auth, "POST", body) as response:
+                self.assertEqual(json.load(response), {"applied": True})
+            apply.assert_called_once_with(RuneSelection.parse(data))
 
     def test_build_route_requires_a_session_and_accepts_only_build_parameters(self):
         path = "/api/build?slug=ahri&id=103&role=middle&tier=emerald_plus"
@@ -178,6 +205,29 @@ class BridgeTests(unittest.TestCase):
             with self.assertRaises(HTTPError) as duplicate_role:
                 self.request(path + "&draft=ornn:516:top,yone:777:top", auth)
             self.assertEqual(duplicate_role.exception.code, 400)
+
+    def test_loadout_route_authorizes_and_validates_both_parts_before_applying(self):
+        data = {"sessionId": "1:1", "runes": None, "spells": [4, 14], "flashPosition": "left"}
+        origin = {"Origin": LIVE_ORIGIN, "Content-Type": "application/json"}
+        auth = {**origin, "X-DraftLab-Session": self.server.session_token}
+        preflight = {"Origin": LIVE_ORIGIN, "Access-Control-Request-Method": "POST",
+                     "Access-Control-Request-Headers": "content-type, x-draftlab-session"}
+        with patch.object(self.server, "apply_loadout") as apply:
+            with self.request("/api/loadout", preflight, "OPTIONS") as response:
+                self.assertEqual(response.status, 204)
+            body = json.dumps(data).encode()
+            with self.assertRaises(HTTPError) as error:
+                self.request("/api/loadout", origin, "POST", body)
+            self.assertEqual(error.exception.code, 403)
+            for change in ({"spells": [4, 4]}, {"spells": [True, 4]}, {"flashPosition": "D"},
+                           {"runes": {"skinId": 22}}, {"spells": None}):
+                with self.assertRaises(HTTPError) as error:
+                    self.request("/api/loadout", auth, "POST", json.dumps({**data, **change}).encode())
+                self.assertEqual(error.exception.code, 400)
+            apply.assert_not_called()
+            with self.request("/api/loadout", auth, "POST", body) as response:
+                self.assertEqual(json.load(response), {"applied": True})
+            self.assertEqual(apply.call_args.args[0].spells, (4, 14))
 
     def test_auth_host_origin_and_no_static_file_serving(self):
         for path in ("/", "/draft.mjs", "/data/draft/catalog.json", "/../companion/app.py"):

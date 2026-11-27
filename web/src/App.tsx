@@ -32,7 +32,7 @@ export function App({ connect }: { connect: CompanionConnector | null }) {
     null,
   );
   const lab = useDraftLab(pairedConnect ?? connect, pairedConnect !== null);
-  const { state, selected, manual, blind } = lab;
+  const { state, selected, manual, blind, lockedChampion, liveChampion, livePickKey, clientPreview } = lab;
   const [search, setSearch] = useState('');
   const [picker, setPicker] = useState<{
     target: PickerTarget | null;
@@ -43,13 +43,19 @@ export function App({ connect }: { connect: CompanionConnector | null }) {
     openings: 0,
   });
   const [settings, setSettings] = useState(false);
+  const [previewBuildOpen, setPreviewBuildOpen] = useState(false);
   const [dismissedBuild, setDismissedBuild] = useState<string | null>(null);
-  const lockedChampion = state.clientOwnChampion === null
-    ? undefined
-    : state.roster.get(state.clientOwnChampion);
-  const buildKey = lockedChampion
-    ? JSON.stringify([state.clientSession, lockedChampion.id])
-    : null;
+  const { champSelect, connected, canApplyRunes, canApplyLoadout } = lab.companionState;
+  const lockedBuildKey = lockedChampion ? livePickKey : null;
+  const buildChampion = liveChampion ??
+    (selected === null ? undefined : state.roster.get(selected));
+  const buildRole = clientPreview && clientPreview.id === buildChampion?.id
+    ? champSelect?.role ?? ROLES.reduce(
+        (best, role) => (clientPreview.roles[role]?.games ?? 0) > (clientPreview.roles[best]?.games ?? 0) ? role : best,
+        state.draft.role,
+      )
+    : state.draft.role;
+  const companionClient = lab.companion.current;
   const [companionDialog, setCompanionDialog] =
     useState<CompanionDialogMode | null>(null);
   const reconnectAttempt = useRef<AbortController | null>(null);
@@ -122,7 +128,9 @@ export function App({ connect }: { connect: CompanionConnector | null }) {
             lab={lab}
             side="allies"
             openPicker={openPicker}
-            openBuild={() => setDismissedBuild(null)}
+            openBuild={connected ? () => setPreviewBuildOpen(true) : undefined}
+            ownChampion={buildChampion}
+            ownLocked={Boolean(lockedChampion)}
             drag={drag}
           />
           <Recommendations
@@ -187,19 +195,31 @@ export function App({ connect }: { connect: CompanionConnector | null }) {
       />
       {spread.popup}
       <FloatingSlot preview={drag.preview} roster={state.roster} />
-      {lockedChampion && (
+      {connected && buildChampion && (
         <ChampionBuild
-          key={buildKey}
-          champion={lockedChampion}
-          role={state.draft.role}
+          key={JSON.stringify([champSelect?.sessionId ?? state.clientSession, buildChampion.id])}
+          champion={buildChampion}
+          role={buildRole}
           rank={lab.catalog?.rank}
+          flashPosition={lab.flashPosition ?? champSelect?.flashPosition ?? null}
+          importSpells={canApplyLoadout}
+          onApply={(canApplyLoadout || canApplyRunes) && companionClient && champSelect
+            ? (loadout) => canApplyLoadout
+              ? companionClient.applyLoadout(champSelect.sessionId, loadout, lab.flashPosition)
+              : loadout.runes
+                ? companionClient.applyRunes(champSelect.sessionId, loadout.runes)
+                : Promise.reject(Error('Rune data is unavailable.'))
+            : undefined}
           opponents={ROLES.flatMap((role) => {
             const id = state.draft.enemies[role];
             const champion = id === null ? undefined : state.roster.get(id);
             return champion ? [{ id: champion.id, key: champion.key, name: champion.name, role }] : [];
           })}
-          open={buildKey !== dismissedBuild}
-          close={() => setDismissedBuild(buildKey)}
+          open={previewBuildOpen || (lockedBuildKey !== null && lockedBuildKey !== dismissedBuild)}
+          close={() => {
+            setPreviewBuildOpen(false);
+            setDismissedBuild(lockedBuildKey);
+          }}
         />
       )}
     </>

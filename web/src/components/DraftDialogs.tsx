@@ -408,6 +408,20 @@ export function SettingsDialog({
           Enabled automatically while live sync is active.
         </p>
       </section>
+      <section className="settings-role-guess">
+        <label className="settings-toggle settings-flash">
+          <span>Flash position</span>
+          <select value={lab.flashPosition ?? ''} aria-describedby="flash-position-help" onChange={(event) => {
+            const value = event.currentTarget.value;
+            lab.changeFlashPosition(value === 'left' || value === 'right' ? value : null);
+          }}>
+            <option value="">Unset</option>
+            <option value="left">Left</option>
+            <option value="right">Right</option>
+          </select>
+        </label>
+        <p id="flash-position-help">When unset, DraftEdge remembers where League has Flash when you enter champion select.</p>
+      </section>
       <details id="patch-settings" ref={disclosure} hidden={patches.length < 2}>
         <summary>Patches</summary>
         <fieldset

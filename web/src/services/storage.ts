@@ -14,9 +14,29 @@ import type {
   RoleOverrides,
   Roster,
 } from '../domain/types';
+import type { FlashPosition } from './champion-builds';
 
 const DRAFT_STORAGE = 'draftlab-draft-v1';
 const PATCH_STORAGE = 'draftlab-excluded-patches-v1';
+const FLASH_STORAGE = 'draftlab-flash-position-v1';
+
+export function readFlashPosition(): FlashPosition | null {
+  try {
+    const value = localStorage.getItem(FLASH_STORAGE);
+    return value === 'left' || value === 'right' ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+export function writeFlashPosition(position: FlashPosition | null) {
+  try {
+    if (position) localStorage.setItem(FLASH_STORAGE, position);
+    else localStorage.removeItem(FLASH_STORAGE);
+  } catch {
+    /* Storage is optional. */
+  }
+}
 export type SavedDraft = {
   draft: Draft;
   includeStrength: boolean;

@@ -17,13 +17,15 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from companion.champion_builds import build_query, get_build
 from companion.lcu import Poller
+from companion.loadout import LoadoutSelection, SpellImportError
 from companion.pairing import LIVE_ORIGINS, PAIRING_PORTS, PendingPairings, allowed_origin
 from companion.preferences import read_settings, settings_path
+from companion.rune_import import DraftChanged, RuneImportError, RuneSelection
 from companion.startup import START_IN_TRAY
 from companion.updates import UpdateChecker
 from companion.windows_launch import WindowsActivation, parse_activation_args
 
-VERSION = "0.3.1"
+VERSION = "0.4.0"
 LIVE_SITE = "https://pant4321.github.io/draft-lab/"
 LIVE_ORIGIN = "https://pant4321.github.io"
 BRIDGE_PROTOCOL = 1
@@ -33,13 +35,16 @@ class State:
     def __init__(self):
         self.lock = threading.Lock()
         self.value = {"status": "starting", "message": "Starting companion", "snapshot": None,
+                      "champSelect": None,
                       "revision": 0, "companionVersion": VERSION, "bridgeProtocol": BRIDGE_PROTOCOL,
                       "update": {"status": "not_checked"}}
 
-    def publish(self, status, message, snapshot):
+    def publish(self, status, message, snapshot, *, champ_select=None):
         with self.lock:
-            if (status, message, snapshot) != (self.value["status"], self.value["message"], self.value["snapshot"]):
-                self.value.update(status=status, message=message, snapshot=snapshot, revision=self.value["revision"] + 1)
+            if (status, message, snapshot, champ_select) != (
+                    self.value["status"], self.value["message"], self.value["snapshot"], self.value["champSelect"]):
+                self.value.update(status=status, message=message, snapshot=snapshot,
+                                  champSelect=champ_select, revision=self.value["revision"] + 1)
 
     def read(self):
         with self.lock:
@@ -65,6 +70,8 @@ class BridgeServer(ThreadingHTTPServer):
         self.pairings = PendingPairings(settings_path().parent / "pairing")
         self.paired_tokens = {}
         self.reconnect_keys = {}
+        self.apply_runes = None
+        self.apply_loadout = None
 
     def request_stop(self, acknowledge=None):
         with self.lifecycle:
@@ -120,17 +127,20 @@ class BridgeHandler(BaseHTTPRequestHandler):
         routes = {"/api/state": ("GET", "X-DraftLab-Session"),
                   "/api/build": ("GET", "X-DraftLab-Session"),
                   "/api/quit": ("POST", "X-DraftLab-Session"),
+                  "/api/runes": ("POST", "Content-Type, X-DraftLab-Session"),
+                  "/api/loadout": ("POST", "Content-Type, X-DraftLab-Session"),
                   "/api/pair": ("POST", "X-DraftLab-Pairing"),
                   "/api/reconnect": ("POST", "X-DraftLab-Reconnect")}
-        expected, header = routes.get(path, ("", ""))
+        expected, allowed_headers = routes.get(path, ("", ""))
         headers = {item.strip().lower() for item in self.headers.get("Access-Control-Request-Headers", "").split(",") if item.strip()}
         if (not self.host_allowed() or not allowed_origin(self.headers.get("Origin")) or not expected
-                or self.headers.get("Access-Control-Request-Method") != expected or headers != {header.lower()}):
+                or self.headers.get("Access-Control-Request-Method") != expected
+                or headers != set(allowed_headers.lower().split(", "))):
             self.send_error(403)
             return
         self.send_response(204)
         self.send_header("Access-Control-Allow-Methods", expected)
-        self.send_header("Access-Control-Allow-Headers", header)
+        self.send_header("Access-Control-Allow-Headers", allowed_headers)
         self.send_header("Access-Control-Max-Age", "600")
         self.send_header("Content-Length", "0")
         self.end_headers()
@@ -153,6 +163,8 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 self.send_json({"error": "Local companion session required."}, 403)
             else:
                 state = self.server.state.read()
+                state["temporaryRunes"] = self.server.apply_runes is not None
+                state["loadoutImport"] = self.server.apply_loadout is not None
                 origin = self.headers.get("Origin")
                 # An authenticated browser can request a separate, process-lifetime key.
                 if url.query == "remember=1" and allowed_origin(origin) and not self.server.stop.is_set():
@@ -211,10 +223,48 @@ class BridgeHandler(BaseHTTPRequestHandler):
         if not self.authorized():
             self.send_json({"error": "Local companion session required."}, 403)
             return
+        if path == "/api/runes":
+            self.apply_selection(self.server.apply_runes, RuneSelection.parse, "rune")
+            return
+        if path == "/api/loadout":
+            self.apply_selection(self.server.apply_loadout, LoadoutSelection.parse, "loadout")
+            return
         if path != "/api/quit":
             self.send_error(404)
             return
         self.server.request_stop(lambda: self.send_json({"stopping": True}))
+
+    def apply_selection(self, apply, parse, kind):
+        if not allowed_origin(self.headers.get("Origin")):
+            self.send_json({"error": "Local companion session required."}, 403)
+            return
+        if apply is None:
+            self.send_json({"error": f"The {kind} import is unavailable."}, 404)
+            return
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            if not 0 < length <= 1024 or self.headers.get_content_type() != "application/json":
+                raise ValueError("Invalid rune import request.")
+            self.connection.settimeout(3)
+            body = self.rfile.read(length)
+            if len(body) != length:
+                raise ValueError("Incomplete rune import request.")
+            selection = parse(json.loads(body))
+        except (OSError, ValueError):
+            self.send_json({"error": f"Invalid {kind} import request."}, 400)
+            return
+
+        try:
+            apply(selection)
+        except DraftChanged as error:
+            self.send_json({"error": str(error)}, 409)
+        except (RuneImportError, SpellImportError) as error:
+            self.send_json({"error": str(error)}, 422)
+        except Exception:
+            # League payloads and transport exceptions stay out of browser responses and logs.
+            self.send_json({"error": f"Could not verify the {kind} import in League."}, 502)
+        else:
+            self.send_json({"applied": True})
 
 
 def resource_root():
@@ -276,6 +326,8 @@ def run(args, activation=None):
         preferred = args.league_folder or (Path(folder) if isinstance(folder, str) and folder else None)
         poller = Poller(state, stop, args.ca_file or root / "companion/assets/riotgames.pem",
                         preferred)
+        server.apply_runes = poller.apply_runes
+        server.apply_loadout = poller.apply_loadout
         serving = threading.Thread(target=server.serve_forever, daemon=True)
         serving.start()
         polling = threading.Thread(target=poller.run, daemon=True)

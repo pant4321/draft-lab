@@ -311,8 +311,8 @@ function TeamEdgeScore({
 }
 
 export function TeamEdge({ lab }: { lab: DraftLab }) {
-  const { draft, clientOwnChampion } = lab.state;
-  const own = clientOwnChampion ?? lab.selected;
+  const { draft } = lab.state;
+  const own = lab.liveChampion?.id ?? lab.selected;
   const ownChampion = blockedChampions(draft).includes(own) ? null : own;
   return (
     <section className="team-edge" aria-labelledby="team-edge-title">

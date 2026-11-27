@@ -9,12 +9,20 @@ from pathlib import Path
 import re
 import ssl
 import subprocess
+from threading import Lock
 import time
 from urllib.request import HTTPSHandler, HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
+from companion.loadout import LoadoutSelection, SpellImportError, current_spells, flash_position, order_spells
+from companion.rune_import import (
+    DraftChanged, RuneImportError, TEMPORARY_PAGE_NAME, active_rune_page, is_recommended_page,
+    owned_temporary_page, rune_payload, select_temporary_runes, selected_temporary_page,
+)
+
 ROLES = {"top": "top", "jungle": "jungle", "middle": "middle", "mid": "middle",
          "bottom": "bottom", "bot": "bottom", "adc": "bottom", "utility": "support", "support": "support"}
-READ_PATHS = frozenset(("/lol-gameflow/v1/gameflow-phase", "/lol-champ-select/v1/session"))
+READ_PATHS = frozenset(("/lol-gameflow/v1/gameflow-phase", "/lol-champ-select/v1/session",
+                        "/lol-perks/v1/styles", "/lol-perks/v1/pages", "/lol-perks/v1/currentpage"))
 MATCH_PHASES = frozenset(("GameStart", "InProgress", "Reconnect"))
 MATCH_ROLES = frozenset(ROLES.values())
 CHAMPION_KEY = re.compile(r"game_character_displayname_([A-Za-z0-9]+)", re.IGNORECASE)
@@ -56,12 +64,40 @@ class LeagueClient:
 
     def get(self, path: str):
         if path not in READ_PATHS:
-            raise ValueError("This companion only reads gameflow and champion select.")
+            raise ValueError("Unsupported League client read.")
+        return self._request("GET", path)
+
+    def _request(self, method, path, payload=None):
         auth = base64.b64encode(("riot:" + self.credentials.password).encode()).decode()
+        headers = {"Authorization": "Basic " + auth, "Accept": "application/json"}
+        data = None
+        if payload is not None:
+            headers["Content-Type"] = "application/json"
+            data = json.dumps(payload).encode()
         request = Request(f"https://127.0.0.1:{self.credentials.port}{path}",
-                          headers={"Authorization": "Basic " + auth, "Accept": "application/json"}, method="GET")
+                          headers=headers, data=data, method=method)
         with self.opener.open(request, timeout=2) as response:
-            return json.load(response)
+            body = response.read()
+            return json.loads(body) if body else None
+
+    def save_temporary_runes(self, runes, page_id=None):
+        payload = {**runes, "name": TEMPORARY_PAGE_NAME,
+                   "isTemporary": True, "isEditable": True, "current": True}
+        if page_id is None:
+            return self._request("POST", "/lol-perks/v1/pages", payload)
+        path = f"/lol-perks/v1/pages/{page_id:d}"
+        page = self._request("GET", path)
+        if not owned_temporary_page(page) or page["id"] != page_id:
+            raise RuneImportError("League's temporary page changed. Try applying the runes again.")
+        self._request("PUT", path, {**payload, "id": page_id})
+        return self._request("GET", path)
+
+    def select_rune_page(self, page_id):
+        return self._request("PUT", "/lol-perks/v1/currentpage", page_id)
+
+    def select_summoner_spells(self, spells):
+        return self._request("PATCH", "/lol-champ-select/v1/session/my-selection",
+                             dict(zip(("spell1Id", "spell2Id"), spells, strict=True)))
 
 
 class LiveGameClient:
@@ -113,6 +149,30 @@ def find_lockfile(preferred: Path | None = None, *, inspect_process=True) -> Pat
 
 def positive_id(value):
     return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else None
+
+
+def draft_player(session):
+    cell = session.get("localPlayerCellId")
+    if type(cell) is not int or cell < 0:
+        return None
+    return next((player for player in session.get("myTeam", []) if player.get("cellId") == cell), None)
+
+
+def draft_player_champion(session, player):
+    champion = positive_id(player.get("championId"))
+    if champion is not None:
+        return champion
+    for phase in reversed(session.get("actions", [])):
+        for action in phase:
+            if action.get("type") == "pick" and action.get("actorCellId") == player.get("cellId"):
+                champion = positive_id(action.get("championId"))
+                if champion is not None:
+                    return champion
+    return positive_id(player.get("championPickIntent"))
+
+
+def is_finalizing(draft):
+    return (draft.get("timer") or {}).get("phase") == "FINALIZATION"
 
 
 def normalize_session(session: dict) -> dict:
@@ -199,20 +259,127 @@ class Poller:
         self.lockfile = None
         self.client = None
         self.live_game = None
+        self.loadout_lock = Lock()
         self.next_search = 0
         self.session_number = 0
         self.clear_session()
 
     def clear_session(self):
         self.session_id = None
+        self.draft_game_id = None
         self.draft_bans = []
         self.match_snapshot = None
         self.match_unavailable = False
+        self.pending_runes = None
 
     def ensure_session(self, pid):
         if self.session_id is None:
             self.session_number += 1
             self.session_id = f"{pid}:{self.session_number}"
+
+    def verify_loadout_draft(self, client, session_id, game_id):
+        draft_context = self.state.read()["champSelect"]
+        if (self.stop.is_set() or client is None or self.client is not client
+                or not draft_context or draft_context["sessionId"] != session_id
+                or client.get("/lol-gameflow/v1/gameflow-phase") != "ChampSelect"):
+            raise DraftChanged("Return to champion select and try again.")
+        draft = client.get("/lol-champ-select/v1/session")
+        if (not isinstance(draft, dict) or (draft.get("timer") or {}).get("phase") == "GAME_STARTING"
+                or (game_id is not None and game_id != positive_id(draft.get("gameId")))):
+            raise DraftChanged("Return to champion select and try again.")
+        return draft
+
+    def apply_runes(self, selection):
+        self.apply_loadout(LoadoutSelection(selection.session_id, selection, None, None))
+
+    def apply_loadout(self, selection):
+        with self.loadout_lock:
+            client, game_id = self.client, self.draft_game_id
+
+            def verify_draft():
+                return self.verify_loadout_draft(client, selection.session_id, game_id)
+
+            draft = verify_draft()
+            player = draft_player(draft)
+            if selection.spells and player is None:
+                raise SpellImportError("League's summoner spell slots are unavailable.")
+            if selection.runes:
+                champion = draft_player_champion(draft, player) if player is not None else None
+                payload = rune_payload(selection.runes, client.get("/lol-perks/v1/styles"))
+                self.apply_rune_page(client, selection.session_id, game_id, champion, payload, verify_draft)
+            if selection.spells:
+                try:
+                    self.apply_spells(client, selection, verify_draft)
+                except (DraftChanged, OSError, ValueError, SpellImportError) as error:
+                    if selection.runes:
+                        raise SpellImportError("Runes applied. League could not verify the summoner spells.") from error
+                    if isinstance(error, DraftChanged):
+                        raise
+                    raise SpellImportError("League could not verify the summoner spells.") from error
+
+    def apply_spells(self, client, selection, verify_draft):
+        player = draft_player(verify_draft())
+        if player is None:
+            raise SpellImportError("League's summoner spell slots are unavailable.")
+        current = current_spells(player)
+        chosen = order_spells(selection.spells, selection.flash_position or flash_position(current))
+        if current == chosen:
+            return
+        client.select_summoner_spells(chosen)
+        for _ in range(3):
+            player = draft_player(verify_draft())
+            if player is not None and current_spells(player) == chosen:
+                return
+            if self.stop.wait(0.15):
+                break
+        raise SpellImportError("League could not verify the summoner spells.")
+
+    def apply_rune_page(self, client, session_id, game_id, champion, payload, verify_draft):
+        self.pending_runes = None
+        page_id = select_temporary_runes(client, payload, verify_draft)
+        active = active_rune_page(client)
+        if selected_temporary_page(active, page_id, payload):
+            if champion is not None:
+                self.pending_runes = (session_id, client, game_id, champion, page_id, payload)
+            return
+        if is_recommended_page(active, champion) and is_finalizing(verify_draft()):
+            page_id = self.restore_runes(client, session_id, game_id, champion, payload)
+            if selected_temporary_page(active_rune_page(client), page_id, payload):
+                return
+        raise RuneImportError("League switched away from the DraftEdge runes. Check the active page in League.")
+
+    def restore_runes(self, client, session_id, game_id, champion, payload):
+        def verify_countdown():
+            draft = self.verify_loadout_draft(client, session_id, game_id)
+            player = draft_player(draft)
+            if (not is_finalizing(draft) or player is None
+                    or draft_player_champion(draft, player) != champion):
+                raise DraftChanged("Return to champion select and try again.")
+
+        verify_countdown()
+        return select_temporary_runes(client, payload, verify_countdown)
+
+    def watch_rune_import(self, draft, champion):
+        if self.pending_runes is None or not self.loadout_lock.acquire(blocking=False):
+            return
+        try:
+            if self.pending_runes is None:
+                return
+            session_id, client, game_id, target, page_id, payload = self.pending_runes
+            if (self.session_id != session_id or self.client is not client or champion != target):
+                self.pending_runes = None
+                return
+            active = client.get("/lol-perks/v1/currentpage")
+            if selected_temporary_page(active, page_id, payload):
+                return
+            self.pending_runes = None
+            if is_finalizing(draft) and is_recommended_page(active, target):
+                self.restore_runes(client, session_id, game_id, target, payload)
+        except (OSError, ValueError, RuneImportError):
+            # Any write still requires the same active draft and countdown.
+            self.pending_runes = None
+        finally:
+            self.loadout_lock.release()
 
     def publish_match(self, pid):
         if self.match_snapshot is None and not self.match_unavailable:
@@ -258,6 +425,7 @@ class Poller:
                 self.client = LeagueClient(credentials, self.certificate)
             phase = self.client.get("/lol-gameflow/v1/gameflow-phase")
             if phase in MATCH_PHASES:
+                self.pending_runes = None
                 self.publish_match(credentials.pid)
                 return
             if phase != "ChampSelect":
@@ -267,16 +435,27 @@ class Poller:
             if self.match_snapshot is not None or self.match_unavailable:
                 self.clear_session()
             raw = self.client.get("/lol-champ-select/v1/session")
-            if raw.get("allowRerolling") or raw.get("benchEnabled") or not any(
-                    player.get("cellId") == raw.get("localPlayerCellId") for player in raw.get("myTeam", [])):
+            game_id = positive_id(raw.get("gameId"))
+            if self.draft_game_id is not None and game_id is not None and self.draft_game_id != game_id:
                 self.clear_session()
-                self.state.publish("unsupported_draft", "Role-based Summoner's Rift drafts only", None)
-                return
+            self.draft_game_id = game_id
             self.ensure_session(credentials.pid)
+            own = draft_player(raw)
+            champ_select = {
+                "sessionId": self.session_id,
+                "championId": draft_player_champion(raw, own) if own is not None else None,
+                "role": ROLES.get(str(own.get("assignedPosition", "")).lower()) if own is not None else None,
+                "flashPosition": flash_position(current_spells(own)) if own is not None else None,
+            }
+            self.watch_rune_import(raw, champ_select["championId"])
+            if own is None or raw.get("allowRerolling") or raw.get("benchEnabled"):
+                self.state.publish("unsupported_draft", "Role-based Summoner's Rift drafts only", None,
+                                   champ_select=champ_select)
+                return
             snapshot = normalize_session(raw)
             self.draft_bans = snapshot["bans"]
             snapshot["sessionId"] = self.session_id
-            self.state.publish("champ_select", "Champion select connected", snapshot)
+            self.state.publish("champ_select", "Champion select connected", snapshot, champ_select=champ_select)
         except ssl.SSLError:
             self.state.publish("connection_error", "League certificate could not be verified", None)
         except Exception:

@@ -1,5 +1,6 @@
 import { isChampionId, isRecord, isRole } from '../domain/types';
-import type { ClientMatchPick, ClientPick, ClientSnapshot } from '../domain/types';
+import type { ClientMatchPick, ClientPick, ClientSnapshot, Role } from '../domain/types';
+import type { BuildLoadout, FlashPosition, RuneLoadout } from './champion-builds';
 import {
   forgetCompanionReconnect,
   forgetCompanionSession,
@@ -10,10 +11,14 @@ import {
 } from './companion-session';
 import type { CompanionSession } from './companion-session';
 
+type ChampionSelect = { sessionId: string; championId: number | null; role: Role | null; flashPosition: FlashPosition | null };
 type BridgeState = {
   status: string;
   message: string;
   revision: number;
+  temporaryRunes: boolean;
+  loadoutImport: boolean;
+  champSelect: ChampionSelect | null;
   snapshot: ClientSnapshot | null;
 };
 type Control =
@@ -38,6 +43,9 @@ export type CompanionState = {
   connected: boolean;
   paused: boolean;
   syncing: boolean;
+  champSelect: ChampionSelect | null;
+  canApplyRunes: boolean;
+  canApplyLoadout: boolean;
   busy: boolean;
   prompt: boolean;
 };
@@ -55,6 +63,9 @@ export const initialCompanionState: CompanionState = {
   connected: false,
   paused: false,
   syncing: false,
+  champSelect: null,
+  canApplyRunes: false,
+  canApplyLoadout: false,
   busy: false,
   prompt: false,
 };
@@ -131,10 +142,21 @@ function readState(value: unknown): BridgeState {
     typeof value.message !== 'string'
   )
     throw Error('connection');
+  const context = value.champSelect;
   return {
     status: value.status,
     message: value.message,
     revision: value.revision,
+    temporaryRunes: value.temporaryRunes === true,
+    loadoutImport: value.loadoutImport === true,
+    champSelect: isRecord(context) && typeof context.sessionId === 'string'
+      ? {
+          sessionId: context.sessionId,
+          championId: isChampionId(context.championId) ? context.championId : null,
+          role: isRole(context.role) ? context.role : null,
+          flashPosition: context.flashPosition === 'left' || context.flashPosition === 'right' ? context.flashPosition : null,
+        }
+      : null,
     snapshot: readSnapshot(value.snapshot),
   };
 }
@@ -161,6 +183,12 @@ export function createCompanionClient(
       state.connected &&
       !state.paused &&
       (bridge?.status === 'champ_select' || bridge?.status === 'in_game');
+    state.champSelect = state.connected &&
+      (bridge?.status === 'champ_select' || bridge?.status === 'unsupported_draft')
+      ? bridge.champSelect
+      : null;
+    state.canApplyRunes = Boolean(state.champSelect && bridge?.temporaryRunes);
+    state.canApplyLoadout = Boolean(state.champSelect && bridge?.loadoutImport);
     onChange(
       state,
       importSnapshot && state.syncing
@@ -175,19 +203,24 @@ export function createCompanionClient(
   }
 
   function request(
-    path: '/api/state' | '/api/quit',
+    path: '/api/state' | '/api/quit' | '/api/runes' | '/api/loadout',
     controller: AbortController,
+    body?: string,
   ) {
     const init = {
-      method: path === '/api/quit' ? 'POST' : 'GET',
+      method: path === '/api/state' ? 'GET' : 'POST',
       mode: 'cors',
       credentials: 'omit',
       cache: 'no-store',
       redirect: 'error',
       referrerPolicy: 'no-referrer',
       targetAddressSpace: 'loopback',
-      signal: AbortSignal.any([controller.signal, AbortSignal.timeout(10000)]),
-      headers: { 'X-DraftLab-Session': activeSession.token },
+      signal: AbortSignal.any([controller.signal, AbortSignal.timeout(path === '/api/runes' || path === '/api/loadout' ? 25000 : 10000)]),
+      headers: {
+        'X-DraftLab-Session': activeSession.token,
+        ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+      },
+      body,
     } satisfies RequestInit & { targetAddressSpace: string };
     const query = path === '/api/state' && !triedRemembering ? '?remember=1' : '';
     return environment.fetch(activeSession.origin + path + query, init);
@@ -323,6 +356,14 @@ export function createCompanionClient(
     );
   }
 
+  async function applySelection(path: '/api/runes' | '/api/loadout', payload: object) {
+    const response = await request(path, new AbortController(), JSON.stringify(payload)).catch(() => null);
+    const result: unknown = await response?.json().catch(() => null);
+    if (response?.ok && isRecord(result) && result.applied === true) return;
+    throw Error(isRecord(result) && typeof result.error === 'string'
+      ? result.error : 'Could not verify the import in League.');
+  }
+
   return {
     async start(alreadyPaired = false) {
       const status = await loopbackPermission(environment.navigator);
@@ -367,6 +408,19 @@ export function createCompanionClient(
     },
     resume() {
       setPaused(false);
+    },
+    async applyRunes(sessionId: string, page: RuneLoadout) {
+      if (stopped || !state.canApplyRunes || state.champSelect?.sessionId !== sessionId)
+        throw Error('Return to champion select and try again.');
+      const { primary, secondary, shards } = page;
+      await applySelection('/api/runes', { sessionId, primary, secondary, shards });
+    },
+    async applyLoadout(sessionId: string, loadout: BuildLoadout, flashPosition: FlashPosition | null) {
+      if (stopped || !state.canApplyLoadout || state.champSelect?.sessionId !== sessionId)
+        throw Error('Return to champion select and try again.');
+      const { runes, spells } = loadout;
+      const selectedRunes = runes && { primary: runes.primary, secondary: runes.secondary, shards: runes.shards };
+      await applySelection('/api/loadout', { sessionId, runes: selectedRunes, spells, flashPosition });
     },
     async quit() {
       if (!state.connected || stopped || quitRequest) return;

@@ -22,6 +22,18 @@ export type RunePage = Stats & {
   secondary: number[];
   shards: number[];
 };
+export type RuneLoadout = Pick<RunePage, 'primary' | 'secondary' | 'shards'>;
+export type FlashPosition = 'left' | 'right';
+export type SpellPairIds = [number, number];
+export type BuildLoadout = { runes: RuneLoadout | null; spells: SpellPairIds | null };
+
+export function summonerSpellIds(key: string | undefined, flashPosition: FlashPosition | null): SpellPairIds | null {
+  if (!key || !/^[1-9]\d?_[1-9]\d?$/.test(key)) return null;
+  const [left, right] = key.split('_').map(Number);
+  if (left === right) return null;
+  return (flashPosition === 'left' && right === 4) || (flashPosition === 'right' && left === 4)
+    ? [right, left] : [left, right];
+}
 export type RuneStats = Record<number, Stats & { pickRate: number }>;
 type ItemSlot = (typeof ITEM_SECTIONS)[number][0];
 export type BuildDecision = ItemSlot | 'keystone' | 'summoners';

@@ -22,6 +22,10 @@ Summoner Spells shows the recommended pair. Select **Alternatives** to compare o
 
 The rune summary highlights a recorded page for the recommended keystone. Select **Show full rune trees** to compare primary and secondary rune stats, with runes highlighted when their pick rate exceeds 1% in that tree position. Close the overlay to return to the draft, or select **View build** under your locked champion to reopen it. Keep the current DraftEdge Companion running to load LoLalytics build stats. Riot Data Dragon supplies the artwork.
 
+With the companion connected, hover a champion in League to preview their portrait in your slot. DraftEdge scrolls to their highlighted row when they are ranked for your role and brings it back into view if new picks move it. You can also inspect a recommendation on the draft board. Both actions reveal **View build**. Click a path icon in the Runes block to reveal the available paths. If you choose the path used on the other side, DraftEdge fills that side with an alternate recommendation. You can also edit individual runes and shards. **Reset** restores the current recommendation.
+
+During champion select, including Practice Tool, **Apply** beside **Close** imports your current runes and recommended summoner spells in one click. Runes use a temporary League page. Set **Flash position** to **Left** or **Right** in Draft settings. It starts unset, and DraftEdge saves the first Flash position it sees in League after you enter champion select with the setting unset.
+
 ## Scores and data
 
 - **Draft edge:** sample-adjusted synergy and counter contributions for a candidate. Optional **Include base WR** adds overall win rate above 50%.

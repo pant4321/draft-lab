@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 import { ROLE_NAMES } from '../domain/draft-math';
 import type { Champion, Role } from '../domain/types';
@@ -9,9 +9,11 @@ import {
   loadBuildAssets,
   loadChampionBuild,
   shardIcon,
+  summonerSpellIds,
 } from '../services/champion-builds';
 import type {
-  BuildAsset, BuildAssets, BuildDecision, BuildOpponent, BuildOption, ChampionBuild as Build, DraftChange, RunePage, RuneStats, Stats,
+  BuildAsset, BuildAssets, BuildDecision, BuildLoadout, BuildOpponent, BuildOption, ChampionBuild as Build, DraftChange,
+  FlashPosition, RuneLoadout, RunePage, RuneStats, Stats,
 } from '../services/champion-builds';
 import { Dialog, Portrait } from './shared';
 
@@ -33,6 +35,20 @@ const shardSlots = [
 ];
 const abilities = ['Q', 'W', 'E', 'R'];
 const MIN_DRAFT_OPTION_WIN_RATE_GAMES = 100;
+type ApplyBuild = (loadout: BuildLoadout) => Promise<void>;
+type RuneTree = BuildAssets['trees'][number];
+type RunePosition = 'primary' | 'secondary';
+
+function sameRunes(a: RuneLoadout, b: RuneLoadout) {
+  return a.primary.length === b.primary.length && a.primary.every((id, index) => id === b.primary[index])
+    && a.secondary.length === b.secondary.length && a.secondary.every((id) => b.secondary.includes(id))
+    && a.shards.length === b.shards.length && a.shards.every((id, index) => id === b.shards[index]);
+}
+
+function sameLoadout(a: BuildLoadout, b: BuildLoadout) {
+  return (a.runes && b.runes ? sameRunes(a.runes, b.runes) : a.runes === b.runes)
+    && a.spells?.[0] === b.spells?.[0] && a.spells?.[1] === b.spells?.[1];
+}
 
 function WinRate({ winRate, games, compact = false, countOnly = false }: Stats & {
   compact?: boolean;
@@ -114,12 +130,15 @@ function DraftReason({ change, opponents, optionName, situational = false }: {
   );
 }
 
-function SpellPair({ pair, assets, countOnly }: { pair: BuildOption; assets: BuildAssets | null; countOnly?: boolean }) {
+function SpellPair({ pair, assets, flashPosition, countOnly }: {
+  pair: BuildOption; assets: BuildAssets | null; flashPosition: FlashPosition | null; countOnly?: boolean;
+}) {
+  const ids = summonerSpellIds(pair.key, flashPosition) ?? pair.key.split('_');
   return (
     <div className="build-spell-pair">
       <ul>
-        {pair.key.split('_').map((id, index) => (
-          <li key={index}><LabeledIcon asset={assets?.summoners[id] ?? { name: 'Spell ' + id }} /></li>
+        {ids.map((id, index) => (
+          <li key={index}><LabeledIcon asset={assets?.summoners[String(id)] ?? { name: 'Spell ' + id }} /></li>
         ))}
       </ul>
       <WinRate {...pair} compact countOnly={countOnly} />
@@ -127,7 +146,9 @@ function SpellPair({ pair, assets, countOnly }: { pair: BuildOption; assets: Bui
   );
 }
 
-function SummonerSpells({ build, assets, opponents }: { build: Build; assets: BuildAssets | null; opponents: OpponentNames }) {
+function SummonerSpells({ build, assets, opponents, flashPosition }: {
+  build: Build; assets: BuildAssets | null; opponents: OpponentNames; flashPosition: FlashPosition | null;
+}) {
   const [expanded, setExpanded] = useState(false);
   const { summoners, summonerAlternatives = [] } = build;
   const draftAlternatives = build.draft?.alternatives?.summoners;
@@ -136,7 +157,7 @@ function SummonerSpells({ build, assets, opponents }: { build: Build; assets: Bu
     <section className="build-panel build-summoners" aria-labelledby="build-summoners-title">
       <div className="build-summoner-head">
         <h3 id="build-summoners-title">Summoner spells</h3>
-        {summoners ? <SpellPair pair={summoners} assets={assets} /> : <span className="build-empty">Spell data is unavailable.</span>}
+        {summoners ? <SpellPair pair={summoners} assets={assets} flashPosition={flashPosition} /> : <span className="build-empty">Spell data is unavailable.</span>}
         {summonerAlternatives.length > 0 && (
           <button
             type="button"
@@ -154,7 +175,7 @@ function SummonerSpells({ build, assets, opponents }: { build: Build; assets: Bu
       <div id="build-summoner-alternatives" className="build-summoner-alternatives" hidden={!expanded}>
         {summonerAlternatives.map((pair) => (
           <div key={pair.key}>
-            <SpellPair pair={pair} assets={assets} countOnly={lowSampleOption(draftAlternatives?.[pair.key])} />
+            <SpellPair pair={pair} assets={assets} flashPosition={flashPosition} countOnly={lowSampleOption(draftAlternatives?.[pair.key])} />
             <DraftReason change={draftAlternatives?.[pair.key]} opponents={opponents} optionName={spellName} situational />
           </div>
         ))}
@@ -253,22 +274,32 @@ function runeAsset(assets: BuildAssets | null, id: number): BuildAsset {
   return assets?.runes[id] ?? { name: 'Rune ' + id };
 }
 
-function RuneSlot({ choices, chosen, asset, keystone = false }: {
+function RuneSlot({ choices, chosen, asset, onPick, disabled, label, keystone = false }: {
   choices: number[];
   chosen: number[];
   asset: (id: number) => BuildAsset;
+  onPick?: (id: number) => void;
+  disabled?: boolean;
+  label?: string;
   keystone?: boolean;
 }) {
   return (
-    <ul className="build-rune-slot" data-keystone={keystone || undefined}>
+    <ul className="build-rune-slot" aria-label={label} data-keystone={keystone || undefined}>
       {choices.map((id) => {
         const option = asset(id);
         const picked = chosen.includes(id);
         return (
           <li key={id} data-picked={picked || undefined} title={option.name}>
-            <span role="img" aria-label={option.name + (picked ? ' (selected)' : '')}>
-              <Icon asset={option} />
-            </span>
+            {onPick ? (
+              <button type="button" className="build-rune-choice" aria-label={option.name} aria-pressed={picked}
+                disabled={disabled} onClick={() => onPick(id)}>
+                <Icon asset={option} />
+              </button>
+            ) : (
+              <span className="build-rune-choice" role="img" aria-label={option.name}>
+                <Icon asset={option} />
+              </span>
+            )}
           </li>
         );
       })}
@@ -276,22 +307,81 @@ function RuneSlot({ choices, chosen, asset, keystone = false }: {
   );
 }
 
-function RunePicks({ position, chosen, assets, children }: {
-  position: 'primary' | 'secondary';
+function findRuneTree(assets: BuildAssets | null, chosen: number[], firstSlot: number) {
+  return assets?.trees.find((tree) =>
+    chosen.length > 0 && chosen.every((id) => tree.slots.slice(firstSlot).some((slot) => slot.includes(id))),
+  );
+}
+
+function RunePathPicker({ position, tree, paths, open, disabled, onToggle, onChoose }: {
+  position: RunePosition;
+  tree: RuneTree;
+  paths: RuneTree[];
+  open: boolean;
+  disabled: boolean;
+  onToggle: (open: boolean) => void;
+  onChoose: (tree: RuneTree) => void;
+}) {
+  const label = position === 'primary' ? 'Primary' : 'Secondary';
+  const optionsId = useId();
+  const trigger = useRef<HTMLButtonElement>(null);
+
+  function dismiss() {
+    onToggle(false);
+    trigger.current?.focus();
+  }
+
+  return (
+    <h4 className="build-rune-path" data-expanded={open || undefined}
+      onKeyDown={(event) => {
+        if (!open || event.key !== 'Escape') return;
+        event.preventDefault();
+        event.stopPropagation();
+        dismiss();
+      }}>
+      <button type="button" ref={trigger} className="build-path-trigger" aria-expanded={open} aria-controls={optionsId}
+        aria-label={`${label} rune path: ${tree.name}`} title={`Change ${position} rune path`} disabled={disabled}
+        onClick={() => onToggle(!open)}>
+        <Icon asset={tree} />
+      </button>
+      <span className="build-path-title">{tree.name} <small>{label}</small></span>
+      <span id={optionsId} role="group" aria-label={`${label} rune paths`} className="build-path-options" inert={!open}>
+        {paths.map((path) => (
+          <button type="button" className="build-path-choice" key={path.name}
+            aria-label={path.name} aria-pressed={path === tree} title={path.name} disabled={disabled}
+            onClick={() => { onChoose(path); dismiss(); }}>
+            <Icon asset={path} />
+          </button>
+        ))}
+      </span>
+    </h4>
+  );
+}
+
+function RunePicks({ position, chosen, assets, paths, pathOpen, disabled, onTogglePath, onChoosePath, onChange, children }: {
+  position: RunePosition;
   chosen: number[];
   assets: BuildAssets | null;
+  paths: RuneTree[];
+  pathOpen: boolean;
+  disabled: boolean;
+  onTogglePath: (open: boolean) => void;
+  onChoosePath: (tree: RuneTree) => void;
+  onChange: (picks: number[]) => void;
   children?: ReactNode;
 }) {
   const primary = position === 'primary';
   const label = primary ? 'Primary' : 'Secondary';
-  const tree = assets?.trees.find((candidate) =>
-    chosen.every((id) => candidate.slots.some((slot) => slot.includes(id))),
-  );
-  const slots = tree ? tree.slots.slice(primary ? 0 : 1) : chosen.map((id) => [id]);
+  const firstSlot = primary ? 0 : 1;
+  const tree = findRuneTree(assets, chosen, firstSlot);
+  const slots = tree ? tree.slots.slice(firstSlot, 4) : chosen.map((id) => [id]);
 
   return (
     <div className="build-rune-summary-group">
-      <h4>{tree && <Icon asset={tree} />}{tree?.name ?? label}{tree && <small>{label}</small>}</h4>
+      {tree && paths.length > 1 ? (
+        <RunePathPicker position={position} tree={tree} paths={paths} open={pathOpen} disabled={disabled}
+          onToggle={onTogglePath} onChoose={onChoosePath} />
+      ) : <h4>{tree && <Icon asset={tree} />}{tree?.name ?? label}</h4>}
       <div className="build-rune-slots">
         {slots.map((slot, index) => (
           <RuneSlot
@@ -300,6 +390,13 @@ function RunePicks({ position, chosen, assets, children }: {
             chosen={chosen}
             asset={(id) => runeAsset(assets, id)}
             keystone={primary && index === 0}
+            disabled={disabled}
+            onPick={tree ? (id) => {
+              if (chosen.includes(id)) return;
+              const replace = primary ? index : chosen.findIndex((current) => slot.includes(current));
+              onChange(replace === -1 ? [...chosen.slice(-1), id]
+                : chosen.map((current, index) => index === replace ? id : current));
+            } : undefined}
           />
         ))}
       </div>
@@ -313,13 +410,19 @@ function shardAsset(id: number): BuildAsset {
   return { name, src: icon ? shardIcon(icon) : undefined };
 }
 
-function ShardPicks({ chosen }: { chosen: number[] }) {
+function ShardPicks({ chosen, disabled, onChange }: {
+  chosen: number[];
+  disabled: boolean;
+  onChange: (picks: number[]) => void;
+}) {
   return (
     <div className="build-shard-picks" role="group" aria-label="Stat shards">
       {chosen.map((id, index) => {
         const slot = shardSlots[index] ?? [];
         const choices = slot.includes(id) ? slot : [...slot, id];
-        return <RuneSlot key={index} choices={choices} chosen={[id]} asset={shardAsset} />;
+        return <RuneSlot key={index} choices={choices} chosen={[id]} asset={shardAsset} disabled={disabled}
+          label={['Offense shard', 'Flex shard', 'Defense shard'][index]}
+          onPick={(next) => onChange(chosen.map((current, row) => row === index ? next : current))} />;
       })}
     </div>
   );
@@ -371,41 +474,102 @@ function RuneTrees({ position, assets, stats }: {
   );
 }
 
-function Runes({ build, assets, opponents }: { build: Build; assets: BuildAssets | null; opponents: OpponentNames }) {
+function Runes({ build, assets, opponents, recommended, page, disabled, onChange }: {
+  build: Build;
+  assets: BuildAssets | null;
+  opponents: OpponentNames;
+  recommended?: RunePage;
+  page?: RuneLoadout;
+  disabled: boolean;
+  onChange: (picks: RuneLoadout | null) => void;
+}) {
   const [expanded, setExpanded] = useState(false);
-  const { runes: pages, runeStats: stats } = build;
-  const page = pages.find((option) => option.kind === 'pick') ?? pages[0];
+  const [openPath, setOpenPath] = useState<RunePosition | null>(null);
+  const { runeStats: stats } = build;
   const runeName = (key: string) => runeAsset(assets, Number(key)).name;
   const alternatives = Object.values(build.draft?.alternatives?.keystone ?? {});
   const toggleLabel = expanded ? 'Hide full' : 'Show full';
+  const modified = page && (!recommended || !sameRunes(recommended, page));
+  const paths = assets?.trees.filter((tree) =>
+    tree.slots.length === 4 && tree.slots.every((slot) => slot.length > 0),
+  ) ?? [];
+
+  function pathFor(picks: RuneLoadout, position: RunePosition) {
+    return findRuneTree(assets, picks[position], position === 'primary' ? 0 : 1);
+  }
+
+  function pickRate(position: RunePosition, id: number) {
+    return stats?.[position]?.[id]?.pickRate ?? 0;
+  }
+
+  function pathRunes(tree: RuneTree, position: RunePosition) {
+    const recorded = [recommended, ...build.runes].find((picks) => picks && pathFor(picks, position) === tree);
+    if (recorded) return recorded[position];
+    const primary = position === 'primary';
+    const winners = tree.slots.slice(primary ? 0 : 1).map((slot) => slot.reduce((best, id) =>
+      pickRate(position, id) > pickRate(position, best) ? id : best,
+    ));
+    if (primary) return winners;
+    const selected = [...winners].sort((a, b) => pickRate(position, b) - pickRate(position, a)).slice(0, 2);
+    return winners.filter((id) => selected.includes(id));
+  }
+
+  function changePath(position: RunePosition, tree: RuneTree) {
+    if (!page || pathFor(page, position) === tree) return;
+    const other = position === 'primary' ? 'secondary' : 'primary';
+    const picks = { ...page, [position]: pathRunes(tree, position) };
+    if (pathFor(page, other) === tree) {
+      const available = paths.filter((path) => path !== tree);
+      const recorded = [recommended, ...build.runes]
+        .map((option) => option && pathFor(option, other))
+        .find((path) => path && available.includes(path));
+      const previousPath = pathFor(page, position);
+      const rank = (path: RuneTree) => (other === 'primary' ? path.slots[0] : path.slots.slice(1).flat())
+        .reduce((sum, id) => sum + pickRate(other, id), 0);
+      const fallback = recorded ?? available.sort((a, b) => rank(b) - rank(a)
+        || Number(b === previousPath) - Number(a === previousPath))[0];
+      if (!fallback) return;
+      picks[other] = pathRunes(fallback, other);
+    }
+    onChange(picks);
+  }
+
   return (
     <>
       <section className="build-panel build-rune-panel" aria-labelledby="build-runes-title">
         <div className="build-section-head">
           <h3 id="build-runes-title">Runes</h3>
-          {page && <span className="build-keystone-stats">{page.statsFor === 'page' ? 'Rune page' : 'Keystone'} <WinRate {...page} /></span>}
-          {assets && assets.trees.length > 0 && (
-            <button
-              type="button"
-              className="ghost build-rune-toggle"
-              aria-label={toggleLabel + ' rune trees'}
-              aria-expanded={expanded}
-              aria-controls="build-full-runes"
-              onClick={() => setExpanded((previous) => !previous)}
-            >
-              {toggleLabel}<span> rune trees</span>
-            </button>
-          )}
+          {recommended && !modified && <span className="build-keystone-stats">{recommended.statsFor === 'page' ? 'Rune page' : 'Keystone'} <WinRate {...recommended} /></span>}
+          <div className="build-rune-controls">
+            {modified && (
+              <button type="button" className="ghost build-rune-toggle" aria-label="Reset runes" disabled={disabled}
+                onClick={() => { setOpenPath(null); onChange(null); }}>Reset</button>
+            )}
+            {assets && assets.trees.length > 0 && (
+              <button type="button" className="ghost build-rune-toggle" aria-label={toggleLabel + ' rune trees'}
+                aria-expanded={expanded} aria-controls="build-full-runes" onClick={() => setExpanded((previous) => !previous)}>
+                {toggleLabel}<span> rune trees</span>
+              </button>
+            )}
+          </div>
         </div>
         {page ? (
           <div className="build-rune-summary">
-            <RunePicks position="primary" chosen={page.primary} assets={assets} />
-            <RunePicks position="secondary" chosen={page.secondary} assets={assets}>
-              <ShardPicks chosen={page.shards} />
+            <RunePicks position="primary" chosen={page.primary} assets={assets} paths={paths} disabled={disabled}
+              pathOpen={openPath === 'primary'} onTogglePath={(open) => setOpenPath(open ? 'primary' : null)}
+              onChoosePath={(tree) => changePath('primary', tree)}
+              onChange={(primary) => onChange({ ...page, primary })} />
+            <RunePicks position="secondary" chosen={page.secondary} assets={assets} paths={paths} disabled={disabled}
+              pathOpen={openPath === 'secondary'} onTogglePath={(open) => setOpenPath(open ? 'secondary' : null)}
+              onChoosePath={(tree) => changePath('secondary', tree)}
+              onChange={(secondary) => onChange({ ...page, secondary })}>
+              <ShardPicks chosen={page.shards} disabled={disabled} onChange={(shards) => onChange({ ...page, shards })} />
             </RunePicks>
           </div>
         ) : <p className="build-empty">Rune data is unavailable.</p>}
-        <DraftReason change={build.draft?.changes.keystone} opponents={opponents} optionName={runeName} />
+        {page?.primary[0] === recommended?.primary[0] && (
+          <DraftReason change={build.draft?.changes.keystone} opponents={opponents} optionName={runeName} />
+        )}
         {alternatives.length > 0 && (
           <details className="build-rune-alternatives">
             <summary>Alternatives · Draft option</summary>
@@ -590,81 +754,115 @@ function BuildSources({ build }: { build: Build }) {
 }
 
 type BuildContent = { status: 'loading' } | { status: 'ready'; build: Build } | { status: 'error'; message: string };
-
-function BuildResults({ query, opponent, assets, draft }: {
+type BuildFeedback = { loadout: BuildLoadout; message: string };
+type BuildViewProps = {
   query: string;
   opponent: BuildOpponent | null;
-  assets: BuildAssets | null;
   draft: BuildOpponent[];
+  header: ReactNode;
+  close: () => void;
+  editedRunes: RuneLoadout | null;
+  onEditRunes: (page: RuneLoadout | null) => void;
+  flashPosition: FlashPosition | null;
+  loadoutImport?: { apply: ApplyBuild; spells: boolean; applying: boolean; feedback: BuildFeedback | null };
+};
+
+function BuildResults({ query, opponent, assets, draft, header, close, editedRunes, onEditRunes, flashPosition, loadoutImport }: BuildViewProps & {
+  assets: BuildAssets | null;
 }) {
-  const [content, setContent] = useState<BuildContent>({ status: 'loading' });
+  const [result, setResult] = useState<{ query: string; content: BuildContent } | null>(null);
   const [attempt, setAttempt] = useState(0);
+  const content: BuildContent = result?.query === query ? result.content : { status: 'loading' };
   const opponents = new Map(draft.map((enemy) => [enemy.id, enemy.name]));
+  const pages = content.status === 'ready' ? content.build.runes : [];
+  const recommended = pages.find((option) => option.kind === 'pick') ?? pages[0];
+  const runePage = editedRunes ?? recommended;
+  const spells = loadoutImport?.spells && content.status === 'ready'
+    ? summonerSpellIds(content.build.summoners?.key, flashPosition) : null;
+  const loadout = { runes: runePage ?? null, spells };
+  const combined = Boolean(spells && runePage) || (loadoutImport?.spells && content.status === 'loading');
+  const applyLabel = combined ? 'Apply runes and spells' : spells ? 'Apply spells' : 'Apply runes';
+  const feedback = loadoutImport?.feedback;
+  const applyStatus = feedback && sameLoadout(feedback.loadout, loadout) ? feedback.message : '';
 
   useEffect(() => {
     const controller = new AbortController();
     void loadChampionBuild(query, controller.signal).then((value) => {
       if (controller.signal.aborted) return;
-      setContent(value
+      setResult({ query, content: value
         ? { status: 'ready', build: value }
-        : { status: 'error', message: 'No build data is available for this champion and role.' });
+        : { status: 'error', message: 'No build data is available for this champion and role.' } });
     }).catch((error: unknown) => {
       if (controller.signal.aborted) return;
-      setContent({ status: 'error', message: error instanceof Error ? error.message : 'Could not load build data.' });
+      setResult({ query, content: { status: 'error', message: error instanceof Error ? error.message : 'Could not load build data.' } });
     });
     return () => controller.abort();
   }, [query, attempt]);
 
   return (
     <>
-      {content.status === 'loading' && <p className="status" role="status">Loading build…</p>}
-      {content.status === 'error' && (
-        <div className="build-error">
-          <p className="status" role="status">{content.message}</p>
-          <button className="ghost" onClick={() => {
-            setContent({ status: 'loading' });
-            setAttempt((previous) => previous + 1);
-          }}>Retry</button>
+      <div className="build-header">
+        {header}
+        <div className="build-header-actions">
+          {loadoutImport && (
+            <button type="button" className="ghost build-apply" disabled={(!runePage && !spells) || loadoutImport.applying}
+              aria-label={applyLabel} title={applyLabel} onClick={() => void loadoutImport.apply(loadout)}>
+              {loadoutImport.applying ? 'Applying…' : combined ? 'Apply' : applyLabel}
+            </button>
+          )}
+          <button type="button" className="ghost build-close" aria-label="Close build" onClick={close}>Close <span aria-hidden="true">×</span></button>
         </div>
-      )}
-      {content.status === 'ready' && (
-        <>
-          {opponent && content.build.opponentId === null && (
-            <p className="build-matchup-note" role="status">
-              Showing all matchups. No build data against {opponent.name} for this rank and role.
-            </p>
-          )}
-          {draft.length > 0 && !content.build.draft && (
-            <p className="build-matchup-note" role="status">Update DraftEdge Companion for draft recommendations. Showing all matchups.</p>
-          )}
-          {content.build.draft && content.build.draft.opponentIds.length < draft.length && (
-            <p className="build-matchup-note" role="status">
-              Matchup data available for {content.build.draft.opponentIds.length} of {draft.length} revealed opponents.
-            </p>
-          )}
-          <div className="build-details">
-            <div className="build-ability-spells">
-              <AbilityOrder build={content.build} assets={assets} />
-              <SummonerSpells build={content.build} assets={assets} opponents={opponents} />
-            </div>
-            <Runes build={content.build} assets={assets} opponents={opponents} />
-            <Items build={content.build} assets={assets} opponents={opponents} />
-            <footer className="build-footer">
-              <BuildSources build={content.build} />
-              <WinRate {...content.build} />
-            </footer>
+        {loadoutImport && <p className="build-apply-status" role="status">{applyStatus}</p>}
+      </div>
+      <div className="build-body">
+        {content.status === 'loading' && <p className="status" role="status">Loading build…</p>}
+        {content.status === 'error' && (
+          <div className="build-error">
+            <p className="status" role="status">{content.message}</p>
+            <button className="ghost" onClick={() => {
+              setResult(null);
+              setAttempt((previous) => previous + 1);
+            }}>Retry</button>
           </div>
-        </>
-      )}
+        )}
+        {content.status === 'ready' && (
+          <>
+            {opponent && content.build.opponentId === null && (
+              <p className="build-matchup-note" role="status">
+                Showing all matchups. No build data against {opponent.name} for this rank and role.
+              </p>
+            )}
+            {draft.length > 0 && !content.build.draft && (
+              <p className="build-matchup-note" role="status">Update DraftEdge Companion for draft recommendations. Showing all matchups.</p>
+            )}
+            {content.build.draft && content.build.draft.opponentIds.length < draft.length && (
+              <p className="build-matchup-note" role="status">
+                Matchup data available for {content.build.draft.opponentIds.length} of {draft.length} revealed opponents.
+              </p>
+            )}
+            <div className="build-details">
+              <div className="build-ability-spells">
+                <AbilityOrder build={content.build} assets={assets} />
+                <SummonerSpells build={content.build} assets={assets} opponents={opponents} flashPosition={flashPosition} />
+              </div>
+              <Runes build={content.build} assets={assets} opponents={opponents} page={runePage} recommended={recommended}
+                disabled={Boolean(loadoutImport?.applying)}
+                onChange={(page) => onEditRunes(page && recommended && sameRunes(page, recommended) ? null : page)} />
+              <Items build={content.build} assets={assets} opponents={opponents} />
+              <footer className="build-footer">
+                <BuildSources build={content.build} />
+                <WinRate {...content.build} />
+              </footer>
+            </div>
+          </>
+        )}
+      </div>
     </>
   );
 }
 
-function BuildBody({ championKey, query, opponent, draft }: {
+function BuildBody({ championKey, ...view }: BuildViewProps & {
   championKey: string;
-  query: string;
-  opponent: BuildOpponent | null;
-  draft: BuildOpponent[];
 }) {
   const [assets, setAssets] = useState<BuildAssets | null>(null);
   useEffect(() => {
@@ -675,22 +873,24 @@ function BuildBody({ championKey, query, opponent, draft }: {
     return () => controller.abort();
   }, [championKey]);
 
-  return (
-    <div className="build-body">
-      <BuildResults key={query} query={query} opponent={opponent} assets={assets} draft={draft} />
-    </div>
-  );
+  return <BuildResults {...view} assets={assets} />;
 }
 
-export function ChampionBuild({ champion, role, rank, opponents, open, close }: {
+export function ChampionBuild({ champion, role, rank, opponents, open, close, flashPosition, importSpells, onApply }: {
   champion: Champion;
   role: Role;
   rank?: string;
   opponents: BuildOpponent[];
   open: boolean;
   close: () => void;
+  flashPosition: FlashPosition | null;
+  importSpells: boolean;
+  onApply?: ApplyBuild;
 }) {
   const [choice, setChoice] = useState('auto');
+  const [runeEdit, setRuneEdit] = useState<{ role: Role; page: RuneLoadout } | null>(null);
+  const [applying, setApplying] = useState(false);
+  const [feedback, setFeedback] = useState<BuildFeedback | null>(null);
   const chosenOpponent = opponents.find((matchup) => String(matchup.id) === choice);
   const opponent = chosenOpponent ?? null;
   const draft = choice === 'all' || opponent ? [] : opponents;
@@ -703,31 +903,51 @@ export function ChampionBuild({ champion, role, rank, opponents, open, close }: 
     opponent,
     draft,
   });
+
+  async function apply(loadout: BuildLoadout) {
+    if (!onApply || applying || (!loadout.runes && !loadout.spells)) return;
+    setApplying(true);
+    setFeedback(null);
+    try {
+      await onApply(loadout);
+      const applied = loadout.runes && loadout.spells ? 'Runes and spells' : loadout.runes ? 'Temporary runes' : 'Summoner spells';
+      setFeedback({ loadout, message: `${applied} applied in League.` });
+    } catch (error) {
+      setFeedback({ loadout, message: error instanceof Error ? error.message : 'Could not verify the import in League.' });
+    } finally {
+      setApplying(false);
+    }
+  }
+  const header = (
+    <>
+      <Portrait champion={champion} className="build-portrait" />
+      <div>
+        <h2 id="champion-build-title">{champion.name} build</h2>
+        <p>{ROLE_NAMES[role]} · {tier === 'all' ? 'All ranks' : 'Emerald+'}</p>
+      </div>
+      {opponents.length > 0 && (
+        <select
+          className="build-matchup"
+          aria-label="Build matchup"
+          value={chosenOpponent || choice === 'all' ? choice : 'auto'}
+          onChange={(event) => setChoice(event.currentTarget.value)}
+        >
+          <option value="auto">Recommended for this draft</option>
+          {opponents.map((matchup) => (
+            <option key={matchup.id} value={matchup.id}>vs. {matchup.name} · {ROLE_NAMES[matchup.role]}</option>
+          ))}
+          <option value="all">All matchups</option>
+        </select>
+      )}
+    </>
+  );
   return (
     <Dialog open={open} close={close} focus=".build-close" className="champion-build" aria-labelledby="champion-build-title">
-      <div className="build-header">
-        <Portrait champion={champion} className="build-portrait" />
-        <div>
-          <h2 id="champion-build-title">{champion.name} build</h2>
-          <p>{ROLE_NAMES[role]} · {tier === 'all' ? 'All ranks' : 'Emerald+'}</p>
-        </div>
-        {opponents.length > 0 && (
-          <select
-            className="build-matchup"
-            aria-label="Build matchup"
-            value={chosenOpponent || choice === 'all' ? choice : 'auto'}
-            onChange={(event) => setChoice(event.currentTarget.value)}
-          >
-            <option value="auto">Recommended for this draft</option>
-            {opponents.map((matchup) => (
-              <option key={matchup.id} value={matchup.id}>vs. {matchup.name} · {ROLE_NAMES[matchup.role]}</option>
-            ))}
-            <option value="all">All matchups</option>
-          </select>
-        )}
-        <button type="button" className="ghost build-close" aria-label="Close build" onClick={close}>Close <span aria-hidden="true">×</span></button>
-      </div>
-      {open && <BuildBody championKey={champion.key} query={query} opponent={opponent} draft={draft} />}
+      {open && <BuildBody championKey={champion.key} query={query} opponent={opponent} draft={draft}
+        header={header} close={close} flashPosition={flashPosition}
+        loadoutImport={onApply && { apply, spells: importSpells, applying, feedback }}
+        editedRunes={runeEdit?.role === role ? runeEdit.page : null}
+        onEditRunes={(page) => setRuneEdit(page ? { role, page } : null)} />}
     </Dialog>
   );
 }
